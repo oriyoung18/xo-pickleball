@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0b0d" />
+  <meta name="description" content="Chi Phi XO Pickleball live player rankings." />
+  <title>XO Pickleball — Chi Phi Rankings</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="court-lines" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="brand">
+      <div class="crest" aria-hidden="true">
+        <span class="greek">ΧΦ</span>
+        <span class="ball-mini"></span>
+      </div>
+      <div>
+        <div class="brand-kicker">CHI PHI • RUTGERS</div>
+        <h1>XO PICKLEBALL</h1>
+      </div>
+    </div>
+
+    <nav class="nav-tabs" aria-label="Main navigation">
+      <button class="nav-btn active" data-view="leaderboard">Leaderboard</button>
+      <button class="nav-btn" data-view="submit">Submit Match</button>
+      <button class="nav-btn member-only hidden" data-view="my-matches">My Matches</button>
+      <button class="nav-btn commissioner-only hidden" data-view="commissioner">Commissioner</button>
+    </nav>
+
+    <div class="account-area">
+      <button id="loginBtn" class="btn outline">Sign in</button>
+      <button id="logoutBtn" class="btn outline hidden">Sign out</button>
+      <div id="accountChip" class="account-chip hidden"></div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div id="modeBanner" class="mode-banner hidden"></div>
+
+    <section id="leaderboard" class="view active">
+      <div class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">ΧΦ • SCARLET & GOLD SERIES</div>
+          <h2>COURT<br><span>KINGS.</span></h2>
+          <p>Individual doubles rankings that account for partner strength, opponent strength, and upsets. Every submitted score is reviewed before it touches the standings.</p>
+          <div class="hero-actions">
+            <button class="btn primary" data-go="submit">Submit a score</button>
+            <span id="syncStatus" class="sync-pill">Connecting…</span>
+          </div>
+        </div>
+
+        <div class="pickle-art" aria-label="Decorative pickleball court graphic">
+          <div class="paddle paddle-left">
+            <div class="paddle-face"><span>Χ</span></div>
+            <div class="paddle-handle"></div>
+          </div>
+          <div class="net"></div>
+          <div class="pickleball">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="paddle paddle-right">
+            <div class="paddle-face"><span>Φ</span></div>
+            <div class="paddle-handle"></div>
+          </div>
+          <div class="art-caption">CHI PHI PICKLEBALL • NEW BRUNSWICK</div>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card"><span>Players</span><b id="statPlayers">40</b></div>
+        <div class="stat-card"><span>Approved Matches</span><b id="statMatches">0</b></div>
+        <div class="stat-card"><span>Pending</span><b id="statPending">0</b></div>
+        <div class="stat-card"><span>Top Rating</span><b id="statTop">1700</b></div>
+      </div>
+
+      <section class="panel leaderboard-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">POWER RANKINGS</div>
+            <h3>Live Leaderboard</h3>
+          </div>
+          <div class="greek-watermark">ΧΦ</div>
+        </div>
+
+        <div class="toolbar">
+          <input id="playerSearch" class="input" type="search" placeholder="Search the roster…" />
+          <div class="legend">
+            <span><i class="dot red"></i> Official ranking</span>
+            <span><i class="dot gold"></i> PROV = under 5 games</span>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Rank</th><th>Player</th><th>Rating</th><th>Record</th><th>GP</th><th>Confidence</th><th>Move</th></tr>
+            </thead>
+            <tbody id="leaderBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section id="submit" class="view">
+      <div class="two-col">
+        <section class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">MATCH REPORT</div><h3>Submit a Result</h3></div>
+            <span class="tag gold">Opponent confirms first</span>
+          </div>
+
+          <div id="loginNeeded" class="callout hidden">
+            You need to sign in before submitting a league result.
+            <button class="link-btn" id="loginFromSubmit">Sign in</button>
+          </div>
+
+          <div id="identityNeeded" class="callout identity-callout hidden">
+            <strong>Verified player identity required.</strong> Your account has to be linked to your real roster name before you can submit or confirm matches.
+            <button class="link-btn" data-go="my-matches">Claim your player</button>
+          </div>
+
+          <div id="identityReady" class="identity-ready hidden"></div>
+
+          <div class="team-box scarlet-edge">
+            <div class="team-label"><span>TEAM A</span><b id="teamAAvg">—</b></div>
+            <div class="field-grid">
+              <label>Player 1<select id="a1"></select></label>
+              <label>Player 2<select id="a2"></select></label>
+            </div>
+          </div>
+
+          <div class="versus">VS</div>
+
+          <div class="team-box gold-edge">
+            <div class="team-label"><span>TEAM B</span><b id="teamBAvg">—</b></div>
+            <div class="field-grid">
+              <label>Player 3<select id="b1"></select></label>
+              <label>Player 4<select id="b2"></select></label>
+            </div>
+          </div>
+
+          <div class="score-box">
+            <div><span id="teamALabel">Team A</span><input id="scoreA" class="score-input" type="number" min="0" max="99" value="11" /></div>
+            <strong>–</strong>
+            <div><span id="teamBLabel">Team B</span><input id="scoreB" class="score-input" type="number" min="0" max="99" value="7" /></div>
+          </div>
+
+          <button id="submitMatchBtn" class="btn primary wide">Submit for opponent confirmation</button>
+          <div id="submitMessage" class="form-message" aria-live="polite"></div>
+        </section>
+
+        <aside class="panel formula-panel">
+          <div class="panel-kicker">RANKING ENGINE</div>
+          <h3>Partners matter. Wins alone don't.</h3>
+          <p>The engine compares each doubles pair, then weights each player's rating movement by uncertainty. New players move faster; established players stabilize. New entrants stay PROV until five approved matches.</p>
+          <div class="formula-line">
+            <span>Team Rating</span><b>(Player A + Player B) ÷ 2</b>
+          </div>
+          <div class="formula-line">
+            <span>Adaptive K-factor</span><b>18–60</b>
+          </div>
+          <div class="formula-line">
+            <span>Provisional period</span><b>5 approved games</b>
+          </div>
+          <div class="formula-line">
+            <span>Approval</span><b>Ori only</b>
+          </div>
+          <div class="court-card">
+            <span class="court-greek">Χ</span>
+            <div class="mini-net"></div>
+            <span class="court-greek">Φ</span>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="my-matches" class="view">
+      <div class="two-col identity-layout">
+        <section class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">PLAYER IDENTITY</div><h3>My League Identity</h3></div>
+            <span id="identityStatusTag" class="tag gold">Not linked</span>
+          </div>
+          <div id="linkedIdentityCard" class="identity-card hidden"></div>
+          <div id="claimIdentityBox">
+            <p class="muted-copy">Choose your actual roster name. Ori reviews the request before the account is linked, so nobody can steal another player's identity.</p>
+            <label>Your roster name<select id="claimPlayerSelect"></select></label>
+            <button id="claimPlayerBtn" class="btn gold-btn wide">Request identity</button>
+            <div id="claimMessage" class="form-message" aria-live="polite"></div>
+          </div>
+          <div id="claimPendingBox" class="callout hidden"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">VERIFY SCORES</div><h3>Needs My Confirmation</h3></div>
+            <span id="confirmBadge" class="tag red">0 waiting</span>
+          </div>
+          <div id="confirmationList" class="match-list"></div>
+        </section>
+      </div>
+
+      <section class="panel history-panel">
+        <div class="panel-head">
+          <div><div class="panel-kicker">MY ACTIVITY</div><h3>My Match Workflow</h3></div>
+        </div>
+        <div id="myMatchList" class="match-list"></div>
+      </section>
+    </section>
+
+    <section id="commissioner" class="view">
+      <div id="commissionerDenied" class="panel denied hidden">
+        <div class="big-greek">ΧΦ</div>
+        <h3>Commissioner access only.</h3>
+        <p>This page is locked at the database level. Sign in with the account assigned the commissioner role.</p>
+      </div>
+
+      <div id="commissionerContent" class="hidden">
+        <div class="commissioner-hero">
+          <div><div class="panel-kicker">COMMISSIONER ROOM</div><h2>Ori's Control Booth</h2></div>
+          <span class="tag red">ORI YOUNG • COMMISSIONER</span>
+        </div>
+
+        <div class="two-col">
+          <div>
+            <section class="panel">
+              <div class="panel-head">
+                <div><div class="panel-kicker">IDENTITY QUEUE</div><h3>Player Claims</h3></div>
+                <span id="claimQueueBadge" class="tag gold">0 pending</span>
+              </div>
+              <div id="claimQueueList" class="match-list"></div>
+            </section>
+
+            <section class="panel history-panel">
+              <div class="panel-head">
+                <div><div class="panel-kicker">MATCH QUEUE</div><h3>Confirmed / Disputed Scores</h3></div>
+                <span id="pendingBadge" class="tag gold">0 pending</span>
+              </div>
+              <div id="pendingList" class="match-list"></div>
+            </section>
+          </div>
+
+          <div>
+            <section class="panel">
+              <div class="panel-kicker">ROSTER CONTROL</div>
+              <h3>Add Player</h3>
+              <div class="admin-row">
+                <label>Name<input id="newPlayerName" class="input" type="text" placeholder="Player name" /></label>
+                <label>Rating<input id="newPlayerRating" class="input" type="number" value="1500" /></label>
+                <button id="addPlayerBtn" class="btn gold-btn">Add</button>
+              </div>
+
+              <h3 class="space-top">Adjust Rating</h3>
+              <div class="admin-row">
+                <label>Player<select id="editPlayer"></select></label>
+                <label>Rating<input id="editRating" class="input" type="number" value="1500" /></label>
+                <button id="setRatingBtn" class="btn outline">Update</button>
+              </div>
+              <h3 class="space-top">Fix Identity Link</h3>
+              <div class="admin-row identity-admin-row">
+                <label>Claimed player<select id="unlinkPlayer"></select></label>
+                <div class="admin-helper">Use only if somebody claimed the wrong roster identity.</div>
+                <button id="unlinkPlayerBtn" class="btn outline">Unlink</button>
+              </div>
+              <div id="adminMessage" class="form-message"></div>
+            </section>
+
+            <section class="panel history-panel">
+              <div class="panel-head">
+                <div><div class="panel-kicker">RECEIPTS</div><h3>Approved History</h3></div>
+              </div>
+              <div id="historyList" class="match-list"></div>
+            </section>
+          </div>
+        </div>
+
+        <section class="panel history-panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">AUDIT TRAIL</div><h3>Commissioner Audit Log</h3></div>
+            <span class="tag red">Permanent record</span>
+          </div>
+          <div id="auditList" class="audit-list"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal-card">
+      <button id="closeAuth" class="modal-close" aria-label="Close">×</button>
+      <div class="crest auth-crest"><span class="greek">ΧΦ</span><span class="ball-mini"></span></div>
+      <div class="panel-kicker">LEAGUE ACCOUNT</div>
+      <h3 id="authTitle">Sign in</h3>
+
+      <div id="nameField" class="hidden">
+        <label>Full name<input id="authName" class="input" type="text" placeholder="Your name" /></label>
+      </div>
+      <label>Email<input id="authEmail" class="input" type="email" autocomplete="email" placeholder="you@example.com" /></label>
+      <label>Password<input id="authPassword" class="input" type="password" autocomplete="current-password" placeholder="8+ characters" /></label>
+
+      <button id="authSubmit" class="btn primary wide">Sign in</button>
+      <button id="authSwitch" class="link-btn wide-link">Need an account? Sign up</button>
+      <div id="authMessage" class="form-message" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <footer>
+    <span>ΧΦ</span> XO Pickleball • Rutgers / New Brunswick • Scarlet & Gold
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
