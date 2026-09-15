@@ -27,6 +27,10 @@
   let authMode = "signin";
   let realtimeChannel = null;
   const playerProfileCache = new Map();
+  const statsMatchesCache = new Map();
+  let statsPlayerAId = null;
+  let statsPlayerBId = null;
+  let statsLoading = false;
   let openProfilePlayerId = null;
 
   const $ = (id) => document.getElementById(id);
@@ -54,6 +58,10 @@
     $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === id));
     if (id === "commissioner") renderCommissionerGate();
     if (id === "my-matches") renderMyMatches();
+    if (id === "stats") {
+      renderStatsHub();
+      loadStatsMatches();
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -706,6 +714,334 @@
       </section>`;
   }
 
+
+  function statsScopeKey() {
+    return selectedSeasonId && selectedSeasonId !== "all" ? selectedSeasonId : "all";
+  }
+
+  function statsScopeName() {
+    return selectedSeasonId === "all"
+      ? "All-Time"
+      : (seasonById(selectedSeasonId)?.name || activeSeason()?.name || "Season");
+  }
+
+  function statsRoster() {
+    return selectedRows();
+  }
+
+  function ensureStatsPlayers() {
+    const roster = statsRoster();
+    if (!roster.length) {
+      statsPlayerAId = null;
+      statsPlayerBId = null;
+      return;
+    }
+    if (!roster.some(p => p.id === statsPlayerAId)) statsPlayerAId = roster[0]?.id || null;
+    if (!roster.some(p => p.id === statsPlayerBId) || statsPlayerBId === statsPlayerAId) {
+      statsPlayerBId = roster.find(p => p.id !== statsPlayerAId)?.id || null;
+    }
+  }
+
+  function statsPlayerOptions(selectedId) {
+    return statsRoster().map(p =>
+      `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${esc(p.name)}${p.provisional ? " • PROV" : ""}</option>`
+    ).join("");
+  }
+
+  function renderStatsControls() {
+    ensureStatsPlayers();
+    const a = $("statsPlayerA");
+    const b = $("statsPlayerB");
+    if (a) a.innerHTML = statsPlayerOptions(statsPlayerAId);
+    if (b) b.innerHTML = statsPlayerOptions(statsPlayerBId);
+
+    const seasonSelect = $("statsSeasonSelect");
+    if (seasonSelect) {
+      seasonSelect.innerHTML = [
+        ...seasons.map(s => `<option value="${s.id}" ${selectedSeasonId === s.id ? "selected" : ""}>${esc(s.name)}${s.status === "active" ? " • ACTIVE" : ""}</option>`),
+        `<option value="all" ${selectedSeasonId === "all" ? "selected" : ""}>All-Time</option>`
+      ].join("");
+    }
+    if ($("statsScopeLabel")) $("statsScopeLabel").textContent = statsScopeName();
+  }
+
+  function canonicalPair(a,b) {
+    return [a,b].sort().join("|");
+  }
+
+  function opponentsInMatch(m, p1, p2) {
+    return (
+      ([m.a1,m.a2].includes(p1) && [m.b1,m.b2].includes(p2)) ||
+      ([m.b1,m.b2].includes(p1) && [m.a1,m.a2].includes(p2))
+    );
+  }
+
+  function partnersInMatch(m, p1, p2) {
+    return (
+      ([m.a1,m.a2].includes(p1) && [m.a1,m.a2].includes(p2)) ||
+      ([m.b1,m.b2].includes(p1) && [m.b1,m.b2].includes(p2))
+    );
+  }
+
+  function scoreForPlayer(m, playerId) {
+    return [m.a1,m.a2].includes(playerId)
+      ? { own:Number(m.score_a), opp:Number(m.score_b) }
+      : { own:Number(m.score_b), opp:Number(m.score_a) };
+  }
+
+  function teamScoreForPair(m, p1, p2) {
+    const onA = [m.a1,m.a2].includes(p1) && [m.a1,m.a2].includes(p2);
+    return onA
+      ? { own:Number(m.score_a), opp:Number(m.score_b), opponents:[m.b1,m.b2] }
+      : { own:Number(m.score_b), opp:Number(m.score_a), opponents:[m.a1,m.a2] };
+  }
+
+  function currentRelationshipStreak(rows, evaluator) {
+    if (!rows.length) return "—";
+    const newest = [...rows].sort((a,b) => new Date(b.reviewed_at || b.created_at) - new Date(a.reviewed_at || a.created_at));
+    const first = evaluator(newest[0]);
+    let count = 0;
+    for (const m of newest) {
+      if (evaluator(m) !== first) break;
+      count++;
+    }
+    return `${first ? "W" : "L"}${count}`;
+  }
+
+  function matchupHistoryRow(m, perspectiveId, partnerMode=false) {
+    const aNames = [m.a1,m.a2].map(id => playerById(id)?.name || "Unknown");
+    const bNames = [m.b1,m.b2].map(id => playerById(id)?.name || "Unknown");
+    let won;
+    if (partnerMode) {
+      const pair = teamScoreForPair(m, statsPlayerAId, statsPlayerBId);
+      won = pair.own > pair.opp;
+    } else {
+      const s = scoreForPlayer(m, perspectiveId);
+      won = s.own > s.opp;
+    }
+    return `<article class="relationship-match-row">
+      <span class="profile-result ${won ? "win" : "loss"}">${won ? "W" : "L"}</span>
+      <div>
+        <strong>${esc(aNames.join(" / "))}</strong>
+        <span>vs ${esc(bNames.join(" / "))}</span>
+      </div>
+      <b>${m.score_a}-${m.score_b}</b>
+      <time>${new Date(m.reviewed_at || m.created_at).toLocaleDateString()}</time>
+    </article>`;
+  }
+
+  function renderHeadToHead(matchRows) {
+    const p1 = playerById(statsPlayerAId);
+    const p2 = playerById(statsPlayerBId);
+    const rows = matchRows.filter(m => opponentsInMatch(m, statsPlayerAId, statsPlayerBId))
+      .sort((a,b) => new Date(b.reviewed_at || b.created_at)-new Date(a.reviewed_at || a.created_at));
+
+    let p1Wins = 0, p2Wins = 0, marginTotal = 0;
+    rows.forEach(m => {
+      const s = scoreForPlayer(m, statsPlayerAId);
+      if (s.own > s.opp) p1Wins++; else p2Wins++;
+      marginTotal += s.own - s.opp;
+    });
+
+    const avgMargin = rows.length ? marginTotal / rows.length : 0;
+    const latest = rows[0] || null;
+    const latestScore = latest ? scoreForPlayer(latest, statsPlayerAId) : null;
+    const lastFive = rows.slice(0,5).map(m => {
+      const s = scoreForPlayer(m, statsPlayerAId);
+      return s.own > s.opp ? "W" : "L";
+    });
+
+    $("h2hMeetingsBadge").textContent = `${rows.length} meeting${rows.length===1?"":"s"}`;
+    $("h2hSummary").innerHTML = rows.length ? `
+      <div class="matchup-scoreboard">
+        <button class="matchup-person" data-player-profile="${p1.id}"><span>${esc(initials(p1.name))}</span><strong>${esc(p1.name)}</strong><b>${p1Wins}</b></button>
+        <div class="matchup-vs"><span>HEAD TO HEAD</span><strong>${p1Wins}-${p2Wins}</strong><small>${esc(statsScopeName())}</small></div>
+        <button class="matchup-person" data-player-profile="${p2.id}"><span>${esc(initials(p2.name))}</span><strong>${esc(p2.name)}</strong><b>${p2Wins}</b></button>
+      </div>
+      <div class="relationship-metrics">
+        <div><span>Leader</span><b>${p1Wins === p2Wins ? "Tied" : esc((p1Wins > p2Wins ? p1 : p2).name)}</b></div>
+        <div><span>${esc(p1.name)} avg margin</span><b>${avgMargin > 0 ? "+" : ""}${avgMargin.toFixed(1)}</b></div>
+        <div><span>Latest</span><b>${latestScore.own > latestScore.opp ? esc(p1.name) : esc(p2.name)} ${latestScore.own}-${latestScore.opp}</b></div>
+        <div><span>${esc(p1.name)} last 5</span><b class="mini-form">${lastFive.map(x=>`<i class="${x==="W"?"w":"l"}">${x}</i>`).join("")}</b></div>
+      </div>` :
+      `<div class="relationship-empty"><strong>No head-to-head meetings yet.</strong><span>Once these two play against each other, their rivalry will appear here automatically.</span></div>`;
+
+    $("h2hRecent").innerHTML = rows.length
+      ? rows.slice(0,8).map(m => matchupHistoryRow(m, statsPlayerAId, false)).join("")
+      : `<div class="empty">No approved head-to-head matches in this view.</div>`;
+  }
+
+  function renderPartnerChemistry(matchRows) {
+    const p1 = playerById(statsPlayerAId);
+    const p2 = playerById(statsPlayerBId);
+    const rows = matchRows.filter(m => partnersInMatch(m, statsPlayerAId, statsPlayerBId))
+      .sort((a,b) => new Date(b.reviewed_at || b.created_at)-new Date(a.reviewed_at || a.created_at));
+
+    let wins = 0, losses = 0, pointsFor = 0, pointsAgainst = 0;
+    rows.forEach(m => {
+      const s = teamScoreForPair(m, statsPlayerAId, statsPlayerBId);
+      pointsFor += s.own;
+      pointsAgainst += s.opp;
+      if (s.own > s.opp) wins++; else losses++;
+    });
+    const pct = rows.length ? wins * 100 / rows.length : 0;
+    const diff = rows.length ? (pointsFor-pointsAgainst)/rows.length : 0;
+    const streak = currentRelationshipStreak(rows, m => {
+      const s = teamScoreForPair(m, statsPlayerAId, statsPlayerBId);
+      return s.own > s.opp;
+    });
+
+    $("partnerGamesBadge").textContent = `${rows.length} together`;
+    $("partnerSummary").innerHTML = rows.length ? `
+      <div class="duo-identity">
+        <span class="duo-avatar">${esc(initials(p1.name))}</span>
+        <div><span>DUO</span><strong>${esc(p1.name)} + ${esc(p2.name)}</strong><small>${esc(statsScopeName())}</small></div>
+        <span class="duo-avatar alt">${esc(initials(p2.name))}</span>
+      </div>
+      <div class="relationship-metrics chemistry-metrics">
+        <div><span>Record</span><b>${wins}-${losses}</b></div>
+        <div><span>Win rate</span><b>${pct.toFixed(1)}%</b></div>
+        <div><span>Avg point diff</span><b>${diff > 0 ? "+" : ""}${diff.toFixed(1)}</b></div>
+        <div><span>Current streak</span><b>${streak}</b></div>
+      </div>` :
+      `<div class="relationship-empty"><strong>No games together yet.</strong><span>When these two team up, their chemistry stats will build automatically.</span></div>`;
+
+    $("partnerRecent").innerHTML = rows.length
+      ? rows.slice(0,8).map(m => matchupHistoryRow(m, statsPlayerAId, true)).join("")
+      : `<div class="empty">No approved matches as partners in this view.</div>`;
+  }
+
+  function buildDuoRows(matchRows) {
+    const map = new Map();
+    const addTeam = (ids, own, opp) => {
+      const key = canonicalPair(ids[0],ids[1]);
+      if (!map.has(key)) map.set(key, { ids:[...ids].sort(), wins:0, losses:0, gp:0, pf:0, pa:0 });
+      const r = map.get(key);
+      r.gp++; r.pf += Number(own); r.pa += Number(opp);
+      if (Number(own) > Number(opp)) r.wins++; else r.losses++;
+    };
+    matchRows.forEach(m => {
+      addTeam([m.a1,m.a2], m.score_a, m.score_b);
+      addTeam([m.b1,m.b2], m.score_b, m.score_a);
+    });
+    return [...map.values()].map(r => ({
+      ...r,
+      winPct:r.gp ? r.wins/r.gp : 0,
+      avgDiff:r.gp ? (r.pf-r.pa)/r.gp : 0
+    }));
+  }
+
+  function renderBestDuos(matchRows) {
+    const min = Math.max(1, Number($("duoMinGames")?.value || 3));
+    const duos = buildDuoRows(matchRows)
+      .filter(r => r.gp >= min)
+      .sort((a,b) => b.winPct-a.winPct || b.gp-a.gp || b.avgDiff-a.avgDiff)
+      .slice(0,10);
+
+    $("bestDuosList").innerHTML = duos.length ? duos.map((d,i) => {
+      const p1 = playerById(d.ids[0]), p2 = playerById(d.ids[1]);
+      return `<div class="relationship-rank-row">
+        <span class="relationship-rank">#${i+1}</span>
+        <div><strong>${esc(p1?.name || "Unknown")} + ${esc(p2?.name || "Unknown")}</strong><span>${d.wins}-${d.losses} • ${d.gp} games • ${d.winPct*100 >= 0 ? (d.winPct*100).toFixed(1) : "0.0"}%</span></div>
+        <b>${d.avgDiff > 0 ? "+" : ""}${d.avgDiff.toFixed(1)} <small>diff</small></b>
+      </div>`;
+    }).join("") : `<div class="empty">No duos have reached ${min} approved game${min===1?"":"s"} yet. Lower the minimum to see more.</div>`;
+  }
+
+  function renderRivalries(matchRows) {
+    const map = new Map();
+    matchRows.forEach(m => {
+      [m.a1,m.a2].forEach(a => [m.b1,m.b2].forEach(b => {
+        const ids = [a,b].sort();
+        const key = ids.join("|");
+        if (!map.has(key)) map.set(key,{ids,count:0,wins0:0,wins1:0});
+        const r = map.get(key);
+        r.count++;
+        const first = ids[0];
+        const s = scoreForPlayer(m, first);
+        if (s.own > s.opp) r.wins0++; else r.wins1++;
+      }));
+    });
+    const rows = [...map.values()].sort((a,b) => b.count-a.count || Math.abs(b.wins0-b.wins1)-Math.abs(a.wins0-a.wins1)).slice(0,10);
+    $("rivalriesList").innerHTML = rows.length ? rows.map((r,i) => {
+      const p1 = playerById(r.ids[0]), p2 = playerById(r.ids[1]);
+      return `<div class="relationship-rank-row rivalry-row">
+        <span class="relationship-rank">#${i+1}</span>
+        <div><strong>${esc(p1?.name || "Unknown")} vs ${esc(p2?.name || "Unknown")}</strong><span>${r.count} meeting${r.count===1?"":"s"} • series ${r.wins0}-${r.wins1}</span></div>
+        <button class="mini-compare-btn" data-compare-a="${r.ids[0]}" data-compare-b="${r.ids[1]}">Compare</button>
+      </div>`;
+    }).join("") : `<div class="empty">Rivalries will appear after approved matches are played.</div>`;
+  }
+
+  function renderStatsHub() {
+    if (!$("statsPlayerA")) return;
+    renderStatsControls();
+    const p1 = playerById(statsPlayerAId);
+    const p2 = playerById(statsPlayerBId);
+
+    if (!p1 || !p2 || p1.id === p2.id) {
+      $("statsStatus").textContent = "Choose two different players.";
+      ["h2hSummary","partnerSummary","h2hRecent","partnerRecent","bestDuosList","rivalriesList"].forEach(id => {
+        if ($(id)) $(id).innerHTML = `<div class="empty">Choose two different players.</div>`;
+      });
+      return;
+    }
+
+    const key = statsScopeKey();
+    const rows = statsMatchesCache.get(key) || [];
+    $("statsStatus").innerHTML = `<strong>${esc(p1.name)}</strong> and <strong>${esc(p2.name)}</strong> • ${esc(statsScopeName())}`;
+    renderHeadToHead(rows);
+    renderPartnerChemistry(rows);
+    renderBestDuos(rows);
+    renderRivalries(rows);
+  }
+
+  async function loadStatsMatches(force=false) {
+    if (!$("statsLoading")) return;
+    renderStatsControls();
+    const key = statsScopeKey();
+    if (!configured) {
+      statsMatchesCache.set(key, matches.filter(m => m.status === "approved"));
+      renderStatsHub();
+      return;
+    }
+    if (!force && statsMatchesCache.has(key)) {
+      renderStatsHub();
+      return;
+    }
+    if (statsLoading) return;
+    statsLoading = true;
+    $("statsLoading").classList.remove("hidden");
+    $("statsContent").classList.add("stats-dimmed");
+
+    try {
+      const all = [];
+      const pageSize = 1000;
+      for (let from=0; from<10000; from+=pageSize) {
+        let q = sb.from("matches")
+          .select("id,a1,a2,b1,b2,score_a,score_b,season_id,status,reviewed_at,created_at")
+          .eq("status","approved")
+          .order("reviewed_at", { ascending:false })
+          .range(from, from+pageSize-1);
+        if (selectedSeasonId && selectedSeasonId !== "all") q = q.eq("season_id", selectedSeasonId);
+        const { data, error } = await q;
+        if (error) throw error;
+        const page = data || [];
+        all.push(...page);
+        if (page.length < pageSize) break;
+      }
+      statsMatchesCache.set(key, all);
+      renderStatsHub();
+    } catch (err) {
+      console.error(err);
+      $("statsStatus").textContent = `Could not load matchup stats: ${err.message || err}`;
+    } finally {
+      statsLoading = false;
+      $("statsLoading").classList.add("hidden");
+      $("statsContent").classList.remove("stats-dimmed");
+    }
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -748,6 +1084,7 @@
   function renderAll() {
     renderSeasonControls();
     renderLeaderboard();
+    renderStatsHub();
     renderSelects();
     renderAuth();
     renderMyMatches();
@@ -798,6 +1135,7 @@
     seasons = sRes.data || [];
     seasonStats = ssRes.data || [];
     playerProfileCache.clear();
+    statsMatchesCache.clear();
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
@@ -1047,7 +1385,7 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v4")
+    realtimeChannel = sb.channel("xo-league-live-v5")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
@@ -1064,6 +1402,43 @@
     $("seasonSelect").addEventListener("change", e => {
       selectedSeasonId = e.target.value;
       renderAll();
+      if ($("stats").classList.contains("active")) loadStatsMatches();
+    });
+
+    $("statsSeasonSelect").addEventListener("change", e => {
+      selectedSeasonId = e.target.value;
+      renderAll();
+      loadStatsMatches();
+    });
+    $("statsPlayerA").addEventListener("change", e => {
+      statsPlayerAId = e.target.value;
+      if (statsPlayerAId === statsPlayerBId) {
+        statsPlayerBId = statsRoster().find(p => p.id !== statsPlayerAId)?.id || null;
+      }
+      renderStatsHub();
+    });
+    $("statsPlayerB").addEventListener("change", e => {
+      statsPlayerBId = e.target.value;
+      if (statsPlayerAId === statsPlayerBId) {
+        statsPlayerAId = statsRoster().find(p => p.id !== statsPlayerBId)?.id || null;
+      }
+      renderStatsHub();
+    });
+    $("swapStatsPlayers").addEventListener("click", () => {
+      [statsPlayerAId, statsPlayerBId] = [statsPlayerBId, statsPlayerAId];
+      renderStatsHub();
+    });
+    $("duoMinGames").addEventListener("change", renderStatsHub);
+    $("statsContent").addEventListener("click", e => {
+      const profile = e.target.closest("[data-player-profile]");
+      if (profile) return openPlayerProfile(profile.dataset.playerProfile);
+      const compare = e.target.closest("[data-compare-a][data-compare-b]");
+      if (compare) {
+        statsPlayerAId = compare.dataset.compareA;
+        statsPlayerBId = compare.dataset.compareB;
+        renderStatsHub();
+        window.scrollTo({top:$("stats").offsetTop,behavior:"smooth"});
+      }
     });
     ["a1","a2","b1","b2"].forEach(id => $(id).addEventListener("change", updateTeamLabels));
     $("submitMatchBtn").addEventListener("click", submitMatch);

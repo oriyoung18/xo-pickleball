@@ -25,6 +25,7 @@
 
     <nav class="nav-tabs" aria-label="Main navigation">
       <button class="nav-btn active" data-view="leaderboard">Leaderboard</button>
+      <button class="nav-btn" data-view="stats">Stats</button>
       <button class="nav-btn" data-view="submit">Submit Match</button>
       <button class="nav-btn member-only hidden" data-view="my-matches">My Matches</button>
       <button class="nav-btn commissioner-only hidden" data-view="commissioner">Commissioner</button>
@@ -107,6 +108,94 @@
           </table>
         </div>
       </section>
+    </section>
+
+
+    <section id="stats" class="view">
+      <div class="stats-lab-hero panel">
+        <div>
+          <div class="panel-kicker">MATCHUP LAB • <span id="statsScopeLabel">Fall 2026</span></div>
+          <h2>Head-to-Head & Partner Chemistry</h2>
+          <p>Compare any two players as opponents or teammates. Everything below is calculated from approved league matches only.</p>
+        </div>
+        <div class="stats-lab-mark">ΧΦ</div>
+      </div>
+
+      <section class="panel stats-control-panel">
+        <div class="stats-controls">
+          <label>Player A<select id="statsPlayerA"></select></label>
+          <button id="swapStatsPlayers" class="swap-players" type="button" aria-label="Swap players">⇄</button>
+          <label>Player B<select id="statsPlayerB"></select></label>
+          <label>Season<select id="statsSeasonSelect"></select></label>
+        </div>
+        <div id="statsStatus" class="stats-status">Choose two players to compare.</div>
+      </section>
+
+      <div id="statsLoading" class="panel stats-loading hidden">
+        <div class="profile-spinner"></div>
+        <span>Loading approved match history…</span>
+      </div>
+
+      <div id="statsContent">
+        <div class="stats-two-col">
+          <section class="panel matchup-card h2h-card">
+            <div class="panel-head">
+              <div><div class="panel-kicker">OPPONENTS</div><h3>Head-to-Head</h3></div>
+              <span id="h2hMeetingsBadge" class="tag red">0 meetings</span>
+            </div>
+            <div id="h2hSummary"></div>
+          </section>
+
+          <section class="panel matchup-card partner-card">
+            <div class="panel-head">
+              <div><div class="panel-kicker">TEAMMATES</div><h3>Partner Chemistry</h3></div>
+              <span id="partnerGamesBadge" class="tag gold">0 together</span>
+            </div>
+            <div id="partnerSummary"></div>
+          </section>
+        </div>
+
+        <div class="stats-two-col lower-stats-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">RECENT</div><h3>Recent Head-to-Head Meetings</h3></div>
+            </div>
+            <div id="h2hRecent" class="matchup-history-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">RECENT</div><h3>Recent Games as Partners</h3></div>
+            </div>
+            <div id="partnerRecent" class="matchup-history-list"></div>
+          </section>
+        </div>
+
+        <div class="stats-two-col lower-stats-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">LEAGUE LEADERS</div><h3>Best Duos</h3></div>
+              <label class="minimum-games-control">Min games
+                <select id="duoMinGames">
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3" selected>3</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+            </div>
+            <div id="bestDuosList" class="relationship-leaderboard"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">RIVALRIES</div><h3>Most Played Matchups</h3></div>
+            </div>
+            <div id="rivalriesList" class="relationship-leaderboard"></div>
+          </section>
+        </div>
+      </div>
     </section>
 
     <section id="submit" class="view">
