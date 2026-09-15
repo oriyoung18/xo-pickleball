@@ -49,6 +49,7 @@
           <div class="hero-actions">
             <button class="btn primary" data-go="submit">Submit a score</button>
             <span id="syncStatus" class="sync-pill">Connecting…</span>
+            <span id="currentSeasonBadge" class="season-live-badge">Fall 2026 • LIVE</span>
           </div>
         </div>
 
@@ -79,14 +80,17 @@
       <section class="panel leaderboard-panel">
         <div class="panel-head">
           <div>
-            <div class="panel-kicker">POWER RANKINGS</div>
+            <div class="panel-kicker">POWER RANKINGS • <span id="seasonContextLabel">Fall 2026</span></div>
             <h3>Live Leaderboard</h3>
           </div>
           <div class="greek-watermark">ΧΦ</div>
         </div>
 
-        <div class="toolbar">
-          <input id="playerSearch" class="input" type="search" placeholder="Search the roster…" />
+        <div class="toolbar season-toolbar">
+          <div class="leader-controls">
+            <input id="playerSearch" class="input" type="search" placeholder="Search the roster…" />
+            <select id="seasonSelect" class="season-select" aria-label="Choose season"></select>
+          </div>
           <div class="legend">
             <span><i class="dot red"></i> Official ranking</span>
             <span><i class="dot gold"></i> PROV = under 5 games</span>
@@ -109,7 +113,10 @@
         <section class="panel">
           <div class="panel-head">
             <div><div class="panel-kicker">MATCH REPORT</div><h3>Submit a Result</h3></div>
-            <span class="tag gold">Opponent confirms first</span>
+            <div class="submit-tags">
+              <span id="submitSeasonTag" class="tag season-tag">Fall 2026</span>
+              <span class="tag gold">Opponent confirms first</span>
+            </div>
           </div>
 
           <div id="loginNeeded" class="callout hidden">
@@ -167,6 +174,9 @@
           </div>
           <div class="formula-line">
             <span>Approval</span><b>Ori only</b>
+          </div>
+          <div class="formula-line">
+            <span>Season</span><b>Active season only</b>
           </div>
           <div class="court-card">
             <span class="court-greek">Χ</span>
@@ -244,7 +254,32 @@
           </div>
 
           <div>
-            <section class="panel">
+            <section class="panel season-admin-panel">
+              <div class="panel-kicker">SEASON CONTROL</div>
+              <h3>Current Season</h3>
+              <div id="commissionerActiveSeason" class="active-season-card">
+                <strong>Fall 2026</strong><span>Active season</span>
+              </div>
+
+              <h3 class="space-top">Start Next Season</h3>
+              <p class="muted-copy">Starting a new season archives the current standings without deleting them. All-Time career records keep running.</p>
+              <div class="season-admin-grid">
+                <label>Season name<input id="newSeasonName" class="input" type="text" placeholder="Spring 2027" /></label>
+                <label>Starting ratings
+                  <select id="newSeasonMode">
+                    <option value="fresh">Fresh — everyone starts 1500</option>
+                    <option value="carry">Carry — keep current ratings</option>
+                  </select>
+                </label>
+                <button id="createSeasonBtn" class="btn gold-btn">Start season</button>
+              </div>
+              <div class="season-mode-note">
+                <b>Fresh</b> gives the semester its own clean race. <b>Carry</b> preserves skill ratings but resets season W-L to 0-0.
+              </div>
+              <div id="seasonAdminMessage" class="form-message"></div>
+            </section>
+
+            <section class="panel history-panel">
               <div class="panel-kicker">ROSTER CONTROL</div>
               <h3>Add Player</h3>
               <div class="admin-row">

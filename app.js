@@ -19,6 +19,9 @@
   let claimStatus = [];
   let profiles = [];
   let auditLogs = [];
+  let seasons = [];
+  let seasonStats = [];
+  let selectedSeasonId = null;
   let currentUser = null;
   let myProfile = null;
   let authMode = "signin";
@@ -59,12 +62,62 @@
     });
   }
 
-  function officialPlayers() {
-    return sortedPlayers().filter(p => !p.provisional);
+  function activeSeason() {
+    return seasons.find(s => s.status === "active") || null;
   }
 
-  function currentRankMap() {
-    return Object.fromEntries(officialPlayers().map((p,i) => [p.id, i+1]));
+  function seasonById(id) {
+    return seasons.find(s => s.id === id) || null;
+  }
+
+  function seasonStat(seasonId, playerId) {
+    return seasonStats.find(s => s.season_id === seasonId && s.player_id === playerId) || null;
+  }
+
+  function seasonRows(seasonId) {
+    return seasonStats
+      .filter(s => s.season_id === seasonId && s.active !== false)
+      .map(s => {
+        const p = playerById(s.player_id);
+        return {
+          ...p,
+          id: s.player_id,
+          rating: s.rating,
+          rating_deviation: s.rating_deviation,
+          wins: s.wins,
+          losses: s.losses,
+          provisional: s.provisional,
+          previous_rank: s.previous_rank,
+          peak_rating: s.peak_rating,
+          last_played_at: s.last_played_at,
+          active: s.active,
+          season_id: s.season_id
+        };
+      })
+      .filter(p => p.name)
+      .sort((a,b) => {
+        if (!!a.provisional !== !!b.provisional) return a.provisional ? 1 : -1;
+        return b.rating - a.rating || a.name.localeCompare(b.name);
+      });
+  }
+
+  function selectedRows() {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? seasonRows(selectedSeasonId)
+      : sortedPlayers();
+  }
+
+  function activeSeasonRows() {
+    const s = activeSeason();
+    return s ? seasonRows(s.id) : sortedPlayers();
+  }
+
+  function officialPlayers(rows = selectedRows()) {
+    return rows.filter(p => !p.provisional);
+  }
+
+  function currentRankMap(rows = selectedRows()) {
+    return Object.fromEntries(officialPlayers(rows).map((p,i) => [p.id, i+1]));
   }
 
   function movementFor(p, rank) {
@@ -114,10 +167,49 @@
     return team === "A" ? [m.a1,m.a2].includes(playerId) : [m.b1,m.b2].includes(playerId);
   }
 
+  function seasonNameForMatch(m) {
+    return seasonById(m.season_id)?.name || "All-Time";
+  }
+
+  function renderSeasonControls() {
+    const current = activeSeason();
+
+    if (!selectedSeasonId && seasons.length) {
+      selectedSeasonId = current?.id || "all";
+    }
+    if (selectedSeasonId && selectedSeasonId !== "all" && !seasonById(selectedSeasonId)) {
+      selectedSeasonId = current?.id || "all";
+    }
+
+    const select = $("seasonSelect");
+    if (select) {
+      const options = [
+        ...seasons.map(s => `<option value="${s.id}" ${selectedSeasonId === s.id ? "selected" : ""}>${esc(s.name)}${s.status === "active" ? " • ACTIVE" : ""}</option>`),
+        `<option value="all" ${selectedSeasonId === "all" ? "selected" : ""}>All-Time</option>`
+      ];
+      select.innerHTML = options.join("");
+    }
+
+    const selected = selectedSeasonId === "all" ? null : seasonById(selectedSeasonId);
+    const context = selected ? selected.name : "All-Time";
+    if ($("seasonContextLabel")) $("seasonContextLabel").textContent = context;
+    if ($("currentSeasonBadge")) {
+      $("currentSeasonBadge").textContent = current ? `${current.name} • LIVE` : "No active season";
+    }
+    if ($("submitSeasonTag")) $("submitSeasonTag").textContent = current ? current.name : "No active season";
+    if ($("commissionerActiveSeason")) {
+      $("commissionerActiveSeason").innerHTML = current
+        ? `<strong>${esc(current.name)}</strong><span>${current.starting_mode === "fresh" ? "Fresh ratings" : "Carried ratings"} • active season</span>`
+        : `<strong>No active season</strong><span>Create a season before matches can be submitted.</span>`;
+    }
+  }
+
   function renderLeaderboard() {
     const q = $("playerSearch").value.trim().toLowerCase();
-    const rankMap = currentRankMap();
-    const rows = sortedPlayers().filter(p => p.name.toLowerCase().includes(q));
+    const rankingRows = selectedRows();
+    const rankMap = currentRankMap(rankingRows);
+    const rows = rankingRows.filter(p => p.name.toLowerCase().includes(q));
+
     $("leaderBody").innerHTML = rows.map((p) => {
       const gp = (p.wins || 0) + (p.losses || 0);
       const rank = rankMap[p.id];
@@ -143,16 +235,21 @@
       </tr>`;
     }).join("") || `<tr><td colspan="7"><div class="empty">No players found.</div></td></tr>`;
 
-    const approved = matches.filter(m => m.status === "approved").length;
+    const approved = matches.filter(m =>
+      m.status === "approved" &&
+      (selectedSeasonId === "all" || m.season_id === selectedSeasonId)
+    ).length;
     const reviewCount = matches.filter(m => ["pending","disputed"].includes(m.status)).length;
-    $("statPlayers").textContent = players.length;
+
+    $("statPlayers").textContent = rankingRows.length;
     $("statMatches").textContent = approved;
     $("statPending").textContent = isCommissioner() ? reviewCount : "—";
-    $("statTop").textContent = officialPlayers()[0]?.rating ?? "—";
+    $("statTop").textContent = officialPlayers(rankingRows)[0]?.rating ?? "—";
   }
 
   function options(selected="") {
-    return `<option value="">Choose player</option>` + sortedPlayers().map(p =>
+    const roster = activeSeasonRows();
+    return `<option value="">Choose player</option>` + roster.map(p =>
       `<option value="${p.id}" ${selected === p.id ? "selected" : ""}>${esc(p.name)} (${p.rating}${p.provisional ? " • PROV" : ""})</option>`
     ).join("");
   }
@@ -186,8 +283,10 @@
   }
 
   function updateTeamLabels() {
+    const activeRows = activeSeasonRows();
+    const activeById = id => activeRows.find(p => p.id === id);
     const name = id => playerById($(id).value)?.name || "—";
-    const rating = id => playerById($(id).value)?.rating;
+    const rating = id => activeById($(id).value)?.rating;
     $("teamALabel").textContent = `${name("a1")} / ${name("a2")}`;
     $("teamBLabel").textContent = `${name("b1")} / ${name("b2")}`;
     const ar = [rating("a1"),rating("a2")];
@@ -264,7 +363,7 @@
       const n = matchNames(m);
       return `<article class="match-card confirmation-card">
         <div class="match-card-head"><strong>${esc(n.teamA)} <span>vs</span> ${esc(n.teamB)}</strong><span class="status-pill status-waiting">VERIFY</span></div>
-        <small>Reported score: <b>${m.score_a}-${m.score_b}</b> • submitted ${new Date(m.created_at).toLocaleString()}</small>
+        <small>${esc(seasonNameForMatch(m))} • Reported score: <b>${m.score_a}-${m.score_b}</b> • submitted ${new Date(m.created_at).toLocaleString()}</small>
         <div class="confirm-actions">
           <button class="btn confirm-btn" data-confirm="${m.id}">Confirm score</button>
           <input class="input dispute-input" data-dispute-input="${m.id}" maxlength="500" placeholder="If wrong, say what needs fixing…" />
@@ -284,7 +383,7 @@
       if (m.status === "rejected") extra = "Rejected by commissioner.";
       return `<article class="match-card">
         <div class="match-card-head"><strong>${esc(n.teamA)} <span>vs</span> ${esc(n.teamB)}</strong><span class="status-pill ${statusClass(m.status)}">${esc(statusLabel(m.status))}</span></div>
-        <small>${m.score_a}-${m.score_b} • ${extra} • ${new Date(m.created_at).toLocaleString()}</small>
+        <small>${esc(seasonNameForMatch(m))} • ${m.score_a}-${m.score_b} • ${extra} • ${new Date(m.created_at).toLocaleString()}</small>
       </article>`;
     }).join("") : `<div class="empty">No matches tied to your player identity yet.</div>`;
   }
@@ -297,7 +396,7 @@
       const disputed = m.status === "disputed";
       return `<article class="match-card ${disputed ? "disputed-card" : ""}">
         <div class="match-card-head"><strong>${esc(n.teamA)} <span>vs</span> ${esc(n.teamB)}</strong><span class="status-pill ${statusClass(m.status)}">${esc(statusLabel(m.status))}</span></div>
-        <small>${m.score_a}-${m.score_b} • ${disputed ? `dispute: ${esc(m.dispute_reason || "No reason")}` : "opponent confirmed"} • ${new Date(m.created_at).toLocaleString()}</small>
+        <small>${esc(seasonNameForMatch(m))} • ${m.score_a}-${m.score_b} • ${disputed ? `dispute: ${esc(m.dispute_reason || "No reason")}` : "opponent confirmed"} • ${new Date(m.created_at).toLocaleString()}</small>
         <div class="match-actions">
           <button class="btn approve-btn" data-review="${m.id}" data-decision="approved">${disputed ? "Resolve & approve" : "Approve"}</button>
           <button class="btn outline reject-btn" data-review="${m.id}" data-decision="rejected">Reject</button>
@@ -336,7 +435,8 @@
       match_approved:`approved a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       match_rejected:`rejected a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       player_added:`added ${d.player_name || "a player"} at ${d.starting_rating ?? "?"}`,
-      rating_changed:`changed ${d.player_name || "a player"} from ${d.old_rating ?? "?"} to ${d.new_rating ?? "?"}`
+      rating_changed:`changed ${d.player_name || "a player"} from ${d.old_rating ?? "?"} to ${d.new_rating ?? "?"}`,
+      season_created:`started ${d.season_name || "a new season"} (${d.starting_mode === "fresh" ? "fresh ratings" : "carried ratings"})`
     };
     return map[a.action] || a.action.replaceAll("_"," ");
   }
@@ -356,7 +456,7 @@
       const n = matchNames(m);
       return `<article class="match-card">
         <strong>${esc(n.teamA)} <span style="color:#6f7885">vs</span> ${esc(n.teamB)}</strong>
-        <small>${m.score_a}-${m.score_b} • uncertainty-weighted rating update • ${new Date(m.reviewed_at || m.created_at).toLocaleString()}</small>
+        <small>${esc(seasonNameForMatch(m))} • ${m.score_a}-${m.score_b} • uncertainty-weighted rating update • ${new Date(m.reviewed_at || m.created_at).toLocaleString()}</small>
       </article>`;
     }).join("") : `<div class="empty">No approved matches yet.</div>`;
   }
@@ -390,6 +490,7 @@
   }
 
   function renderAll() {
+    renderSeasonControls();
     renderLeaderboard();
     renderSelects();
     renderAuth();
@@ -409,6 +510,13 @@
       claimStatus = [];
       profiles = [];
       auditLogs = [];
+      seasons = [{ id:"demo-season", name:"Fall 2026", slug:"fall-2026", status:"active", starting_mode:"carry" }];
+      seasonStats = players.map(p => ({
+        season_id:"demo-season", player_id:p.id, rating:p.rating, rating_deviation:p.rating_deviation,
+        wins:p.wins, losses:p.losses, provisional:p.provisional, previous_rank:p.previous_rank,
+        peak_rating:p.rating, active:true
+      }));
+      selectedSeasonId = "demo-season";
       $("syncStatus").textContent = "Preview mode";
       $("syncStatus").classList.remove("live");
       const banner = $("modeBanner");
@@ -420,13 +528,20 @@
 
     const basePromises = [
       sb.from("players").select("*").order("rating", { ascending:false }),
-      sb.from("matches").select("*").order("created_at", { ascending:false }).limit(250)
+      sb.from("matches").select("*").order("created_at", { ascending:false }).limit(250),
+      sb.from("seasons").select("*").order("starts_on", { ascending:false }),
+      sb.from("season_player_stats").select("*")
     ];
-    const [pRes, mRes] = await Promise.all(basePromises);
+    const [pRes, mRes, sRes, ssRes] = await Promise.all(basePromises);
     if (pRes.error) throw pRes.error;
     if (mRes.error) throw mRes.error;
+    if (sRes.error) throw sRes.error;
+    if (ssRes.error) throw ssRes.error;
     players = pRes.data || [];
     matches = mRes.data || [];
+    seasons = sRes.data || [];
+    seasonStats = ssRes.data || [];
+    if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
     claimStatus = [];
@@ -586,7 +701,7 @@
     });
     $("submitMatchBtn").disabled = false;
     if (error) return setMessage($("submitMessage"), error.message, "error");
-    setMessage($("submitMessage"), "Submitted. Someone from the opposing team must confirm it before Ori sees it for final approval.", "success");
+    setMessage($("submitMessage"), `Submitted to ${activeSeason()?.name || "the active season"}. Someone from the opposing team must confirm it before Ori sees it for final approval.`, "success");
     await loadData();
   }
 
@@ -644,14 +759,44 @@
     await loadData();
   }
 
+  async function createSeason() {
+    if (!isCommissioner()) return;
+    const name = $("newSeasonName").value.trim();
+    const mode = $("newSeasonMode").value;
+    if (name.length < 3) return setMessage($("seasonAdminMessage"), "Enter a season name, like Spring 2027.", "error");
+
+    const current = activeSeason();
+    const modeText = mode === "fresh"
+      ? "Everyone starts this season at 1500 with high uncertainty."
+      : "Ratings carry into the new season, but season W-L resets to 0-0.";
+
+    const warning = current
+      ? `Start "${name}" and archive ${current.name}?\n\n${modeText}\n\nOld season standings and match history stay saved.`
+      : `Start "${name}"?\n\n${modeText}`;
+
+    if (!confirm(warning)) return;
+
+    $("createSeasonBtn").disabled = true;
+    const { data, error } = await sb.rpc("commissioner_create_season", { p_name:name, p_mode:mode });
+    $("createSeasonBtn").disabled = false;
+
+    if (error) return setMessage($("seasonAdminMessage"), error.message, "error");
+    $("newSeasonName").value = "";
+    selectedSeasonId = data || null;
+    setMessage($("seasonAdminMessage"), `${name} is now the active season.`, "success");
+    await loadData();
+  }
+
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v2")
+    realtimeChannel = sb.channel("xo-league-live-v3")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"audit_log" }, () => { if (isCommissioner()) loadData(); })
+      .on("postgres_changes", { event:"*", schema:"public", table:"seasons" }, () => loadData())
+      .on("postgres_changes", { event:"*", schema:"public", table:"season_player_stats" }, () => loadData())
       .subscribe();
   }
 
@@ -659,6 +804,10 @@
     $$(".nav-btn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
     $$('[data-go]').forEach(b => b.addEventListener("click", () => setView(b.dataset.go)));
     $("playerSearch").addEventListener("input", renderLeaderboard);
+    $("seasonSelect").addEventListener("change", e => {
+      selectedSeasonId = e.target.value;
+      renderAll();
+    });
     ["a1","a2","b1","b2"].forEach(id => $(id).addEventListener("change", updateTeamLabels));
     $("submitMatchBtn").addEventListener("click", submitMatch);
 
@@ -691,6 +840,7 @@
     $("addPlayerBtn").addEventListener("click", addPlayer);
     $("setRatingBtn").addEventListener("click", setRating);
     $("unlinkPlayerBtn").addEventListener("click", unlinkIdentity);
+    $("createSeasonBtn").addEventListener("click", createSeason);
   }
 
   async function boot() {
