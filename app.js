@@ -26,6 +26,8 @@
   let myProfile = null;
   let authMode = "signin";
   let realtimeChannel = null;
+  const playerProfileCache = new Map();
+  let openProfilePlayerId = null;
 
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -221,12 +223,12 @@
       const rd = Number(p.rating_deviation ?? 350);
       const rankCell = p.provisional ? `<span class="prov-badge">PROV</span>` : `#${rank}`;
       const claimed = claimStatus.find(c => c.player_id === p.id)?.is_claimed;
-      const status = p.provisional
-        ? `<span class="player-sub">Provisional • ${gp}/5 matches${claimed ? " • verified account" : ""}</span>`
-        : `<span class="player-sub official-sub">Official${claimed ? " • verified account" : ""}</span>`;
+      const verifiedBadge = claimed
+        ? `<span class="verified-badge" title="Verified league account" aria-label="Verified league account">✓</span>`
+        : "";
       return `<tr class="${!p.provisional && rank <= 10 ? "top10" : ""} ${!p.provisional && rank <= 3 ? "top3" : ""} ${p.provisional ? "provisional-row" : ""}">
         <td class="rank">${rankCell}</td>
-        <td class="player-name">${esc(p.name)}${status}</td>
+        <td class="player-name"><div class="player-name-wrap"><button class="player-link" data-player-profile="${p.id}">${esc(p.name)}</button>${verifiedBadge}</div></td>
         <td class="rating">${p.rating}</td>
         <td>${p.wins || 0}-${p.losses || 0}</td>
         <td>${gp}</td>
@@ -450,6 +452,260 @@
       </div>`).join("") : `<div class="empty">Audit events will appear here as the league is used.</div>`;
   }
 
+
+  function initials(name) {
+    return String(name || "?").trim().split(/\s+/).map(x => x[0]).filter(Boolean).slice(0,2).join("").toUpperCase();
+  }
+
+  function selectedProfileRow(playerId) {
+    if (selectedSeasonId && selectedSeasonId !== "all") {
+      return seasonRows(selectedSeasonId).find(p => p.id === playerId) || playerById(playerId);
+    }
+    return playerById(playerId);
+  }
+
+  function selectedProfileRank(playerId) {
+    const rows = selectedRows();
+    const p = rows.find(x => x.id === playerId);
+    if (!p || p.provisional) return null;
+    return currentRankMap(rows)[playerId] || null;
+  }
+
+  function resultScopeRows(rows) {
+    if (selectedSeasonId && selectedSeasonId !== "all") {
+      return rows.filter(r => r.season_id === selectedSeasonId);
+    }
+    return rows;
+  }
+
+  function matchScopeRows(rows) {
+    if (selectedSeasonId && selectedSeasonId !== "all") {
+      return rows.filter(m => m.season_id === selectedSeasonId);
+    }
+    return rows;
+  }
+
+  function scopedRatingBefore(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_before ?? r.rating_before)
+      : Number(r.rating_before);
+  }
+
+  function scopedRatingAfter(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_after ?? r.rating_after)
+      : Number(r.rating_after);
+  }
+
+  function scopedRatingDelta(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_delta ?? r.rating_delta)
+      : Number(r.rating_delta);
+  }
+
+  function playerSideInfo(m, playerId) {
+    const onA = [m.a1,m.a2].includes(playerId);
+    const teamIds = onA ? [m.a1,m.a2] : [m.b1,m.b2];
+    const oppIds = onA ? [m.b1,m.b2] : [m.a1,m.a2];
+    const partnerId = teamIds.find(id => id !== playerId);
+    const ownScore = onA ? m.score_a : m.score_b;
+    const oppScore = onA ? m.score_b : m.score_a;
+    return {
+      onA,
+      won: ownScore > oppScore,
+      ownScore,
+      oppScore,
+      partnerId,
+      opponentIds: oppIds,
+      partner: playerById(partnerId)?.name || "Unknown",
+      opponents: oppIds.map(id => playerById(id)?.name || "Unknown")
+    };
+  }
+
+  function streakText(resultsDesc) {
+    if (!resultsDesc.length) return "—";
+    const first = resultsDesc[0].result;
+    let n = 0;
+    for (const r of resultsDesc) {
+      if (r.result !== first) break;
+      n++;
+    }
+    return `${first === "win" ? "W" : "L"}${n}`;
+  }
+
+  function mostCommonName(items) {
+    if (!items.length) return { name:"—", count:0 };
+    const counts = new Map();
+    items.forEach(name => counts.set(name, (counts.get(name) || 0) + 1));
+    return [...counts.entries()].sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))
+      .map(([name,count]) => ({name,count}))[0];
+  }
+
+  function ratingChartSvg(resultsAsc, currentRating) {
+    if (!resultsAsc.length) {
+      return `<div class="profile-empty-chart"><b>${currentRating ?? "—"}</b><span>Play approved matches to build a rating graph.</span></div>`;
+    }
+    const values = [scopedRatingBefore(resultsAsc[0]), ...resultsAsc.map(scopedRatingAfter)].filter(Number.isFinite);
+    if (!values.length) return `<div class="profile-empty-chart">No rating history yet.</div>`;
+    const width = 720, height = 230, padX = 28, padY = 26;
+    let min = Math.min(...values), max = Math.max(...values);
+    if (min === max) { min -= 10; max += 10; }
+    const extra = Math.max(8, Math.round((max-min)*.12));
+    min -= extra; max += extra;
+    const x = i => padX + (values.length === 1 ? 0 : i * (width-2*padX)/(values.length-1));
+    const y = v => height-padY - ((v-min)/(max-min))*(height-2*padY);
+    const points = values.map((v,i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const dots = values.map((v,i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4"><title>${v}</title></circle>`).join("");
+    const gridVals = [max, (max+min)/2, min];
+    const grid = gridVals.map(v => `<g><line x1="${padX}" y1="${y(v).toFixed(1)}" x2="${width-padX}" y2="${y(v).toFixed(1)}"/><text x="4" y="${(y(v)+4).toFixed(1)}">${Math.round(v)}</text></g>`).join("");
+    return `<svg class="rating-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Rating history chart">
+      <g class="chart-grid">${grid}</g>
+      <polyline class="chart-line" points="${points}" />
+      <g class="chart-dots">${dots}</g>
+    </svg>`;
+  }
+
+  function profileMatchCard(m, playerId, deltaMap) {
+    const info = playerSideInfo(m, playerId);
+    const delta = deltaMap.get(m.id);
+    const sign = Number(delta) > 0 ? "+" : "";
+    return `<article class="profile-match-row">
+      <span class="profile-result ${info.won ? "win" : "loss"}">${info.won ? "W" : "L"}</span>
+      <div><strong>${esc(info.partner)}</strong><span>vs ${esc(info.opponents.join(" / "))}</span></div>
+      <b>${info.ownScore}-${info.oppScore}</b>
+      <span class="profile-delta ${Number(delta) >= 0 ? "positive" : "negative"}">${Number.isFinite(Number(delta)) ? `${sign}${delta}` : "—"}</span>
+    </article>`;
+  }
+
+  async function openPlayerProfile(playerId) {
+    const p = playerById(playerId);
+    if (!p) return;
+    openProfilePlayerId = playerId;
+    $("playerProfileModal").classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    $("playerProfileContent").innerHTML = `<div class="profile-loading"><div class="profile-spinner"></div><span>Loading ${esc(p.name)}…</span></div>`;
+
+    try {
+      let data = playerProfileCache.get(playerId);
+      if (!data) {
+        if (!configured) {
+          data = { results:[], matches:[] };
+        } else {
+          const [resultsRes, matchesRes] = await Promise.all([
+            sb.from("match_player_results").select("*").eq("player_id", playerId).order("created_at", { ascending:true }),
+            sb.from("matches").select("*").eq("status", "approved")
+              .or(`a1.eq.${playerId},a2.eq.${playerId},b1.eq.${playerId},b2.eq.${playerId}`)
+              .order("reviewed_at", { ascending:false }).limit(250)
+          ]);
+          if (resultsRes.error) throw resultsRes.error;
+          if (matchesRes.error) throw matchesRes.error;
+          data = { results:resultsRes.data || [], matches:matchesRes.data || [] };
+          playerProfileCache.set(playerId, data);
+        }
+      }
+      if (openProfilePlayerId === playerId) renderPlayerProfile(playerId, data.results, data.matches);
+    } catch (err) {
+      console.error(err);
+      $("playerProfileContent").innerHTML = `<div class="profile-error">Could not load this profile. ${esc(err.message || err)}</div>`;
+    }
+  }
+
+  function closePlayerProfile() {
+    openProfilePlayerId = null;
+    $("playerProfileModal").classList.add("hidden");
+    document.body.classList.remove("modal-open");
+  }
+
+  function renderPlayerProfile(playerId, rawResults, rawMatches) {
+    const base = playerById(playerId);
+    const row = selectedProfileRow(playerId) || base;
+    if (!base || !row) return;
+
+    const results = resultScopeRows(rawResults).slice().sort((a,b) => new Date(a.created_at)-new Date(b.created_at));
+    const resultsDesc = [...results].reverse();
+    const profileMatches = matchScopeRows(rawMatches).slice().sort((a,b) => new Date(b.reviewed_at || b.created_at)-new Date(a.reviewed_at || a.created_at));
+    const gp = (row.wins || 0) + (row.losses || 0);
+    const winPct = gp ? Math.round((row.wins || 0) * 1000 / gp) / 10 : 0;
+    const rank = selectedProfileRank(playerId);
+    const scopeName = selectedSeasonId === "all" ? "All-Time" : (seasonById(selectedSeasonId)?.name || "Season");
+    const peak = selectedSeasonId !== "all"
+      ? Number(row.peak_rating ?? row.rating)
+      : Math.max(Number(row.rating || 0), ...results.map(scopedRatingAfter).filter(Number.isFinite), Number(row.rating || 0));
+    const recent = resultsDesc.slice(0,10);
+    const form = recent.map(r => r.result === "win" ? "W" : "L");
+    const bestWin = results.filter(r => r.result === "win").sort((a,b) => scopedRatingDelta(b)-scopedRatingDelta(a))[0] || null;
+    const worstLoss = results.filter(r => r.result === "loss").sort((a,b) => scopedRatingDelta(a)-scopedRatingDelta(b))[0] || null;
+    const matchById = new Map(profileMatches.map(m => [m.id,m]));
+
+    const partners = [], opponents = [];
+    profileMatches.forEach(m => {
+      const info = playerSideInfo(m, playerId);
+      partners.push(info.partner);
+      opponents.push(...info.opponents);
+    });
+    const topPartner = mostCommonName(partners);
+    const topOpponent = mostCommonName(opponents);
+    const deltaMap = new Map(results.map(r => [r.match_id, scopedRatingDelta(r)]));
+
+    const signatureCard = (r, label, fallback) => {
+      if (!r) return `<div class="signature-card"><span>${label}</span><strong>—</strong><small>${fallback}</small></div>`;
+      const m = matchById.get(r.match_id);
+      const info = m ? playerSideInfo(m, playerId) : null;
+      const delta = scopedRatingDelta(r);
+      return `<div class="signature-card"><span>${label}</span><strong>${delta > 0 ? "+" : ""}${delta} rating</strong><small>${info ? `${esc(info.partner)} vs ${esc(info.opponents.join(" / "))} • ${info.ownScore}-${info.oppScore}` : "Approved match"}</small></div>`;
+    };
+
+    $("playerProfileContent").innerHTML = `
+      <div class="profile-hero">
+        <div class="profile-avatar">${esc(initials(base.name))}</div>
+        <div class="profile-title-block">
+          <div class="panel-kicker">${esc(scopeName)} PLAYER PROFILE</div>
+          <h2>${esc(base.name)}</h2>
+          <div class="profile-status-line">
+            ${row.provisional ? `<span class="prov-badge">PROV</span><span>${Math.max(0,5-gp)} game${Math.max(0,5-gp)===1?"":"s"} to official</span>` : `<span class="profile-rank">#${rank || "—"}</span><span>Official ranking</span>`}
+            ${claimStatus.find(c => c.player_id === playerId)?.is_claimed ? `<span class="verified-profile">✓ Verified</span>` : ""}
+          </div>
+        </div>
+        <div class="profile-big-rating"><b>${row.rating}</b><span>Rating</span></div>
+      </div>
+
+      <div class="profile-stat-grid">
+        <div><span>Record</span><b>${row.wins || 0}-${row.losses || 0}</b></div>
+        <div><span>Win %</span><b>${winPct}%</b></div>
+        <div><span>Current streak</span><b>${streakText(resultsDesc)}</b></div>
+        <div><span>Peak rating</span><b>${peak || row.rating}</b></div>
+        <div><span>Confidence</span><b>${confidenceLabel(row.rating_deviation)} <small>±${row.rating_deviation ?? 350}</small></b></div>
+        <div><span>Matches</span><b>${gp}</b></div>
+      </div>
+
+      <div class="profile-grid-two">
+        <section class="profile-section chart-section">
+          <div class="profile-section-head"><div><span>RATING HISTORY</span><h3>${esc(scopeName)} progression</h3></div><b>${results.length} tracked</b></div>
+          ${ratingChartSvg(results, row.rating)}
+        </section>
+        <section class="profile-section">
+          <div class="profile-section-head"><div><span>LAST 10</span><h3>Recent form</h3></div></div>
+          <div class="form-strip">${form.length ? form.map(x => `<i class="${x === "W" ? "w" : "l"}">${x}</i>`).join("") : `<span>No approved matches yet.</span>`}</div>
+          <div class="connection-grid">
+            <div><span>Most-played partner</span><strong>${esc(topPartner.name)}</strong><small>${topPartner.count ? `${topPartner.count} match${topPartner.count===1?"":"es"}` : "No data"}</small></div>
+            <div><span>Most-faced opponent</span><strong>${esc(topOpponent.name)}</strong><small>${topOpponent.count ? `${topOpponent.count} meeting${topOpponent.count===1?"":"s"}` : "No data"}</small></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="signature-grid">
+        ${signatureCard(bestWin, "BIGGEST WIN", "No wins yet")}
+        ${signatureCard(worstLoss, "WORST LOSS", "No losses yet")}
+      </div>
+
+      <section class="profile-section">
+        <div class="profile-section-head"><div><span>MATCH LOG</span><h3>Recent approved matches</h3></div><b>${profileMatches.length} total</b></div>
+        <div class="profile-match-list">
+          ${profileMatches.length ? profileMatches.slice(0,10).map(m => profileMatchCard(m, playerId, deltaMap)).join("") : `<div class="empty">No approved matches in this view yet.</div>`}
+        </div>
+      </section>`;
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -541,6 +797,7 @@
     matches = mRes.data || [];
     seasons = sRes.data || [];
     seasonStats = ssRes.data || [];
+    playerProfileCache.clear();
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
@@ -790,7 +1047,7 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v3")
+    realtimeChannel = sb.channel("xo-league-live-v4")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
@@ -810,6 +1067,14 @@
     });
     ["a1","a2","b1","b2"].forEach(id => $(id).addEventListener("change", updateTeamLabels));
     $("submitMatchBtn").addEventListener("click", submitMatch);
+
+    $("leaderBody").addEventListener("click", e => {
+      const btn = e.target.closest("[data-player-profile]");
+      if (btn) openPlayerProfile(btn.dataset.playerProfile);
+    });
+    $("closePlayerProfile").addEventListener("click", closePlayerProfile);
+    $("playerProfileModal").addEventListener("click", e => { if (e.target === $("playerProfileModal")) closePlayerProfile(); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("playerProfileModal").classList.contains("hidden")) closePlayerProfile(); });
 
     $("loginBtn").addEventListener("click", () => openAuth("signin"));
     $("loginFromSubmit").addEventListener("click", () => openAuth("signin"));
