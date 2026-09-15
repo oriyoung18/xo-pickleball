@@ -94,6 +94,7 @@
           <div class="legend">
             <span><i class="dot red"></i> Official ranking</span>
             <span><i class="dot gold"></i> PROV = under 5 games</span>
+            <span class="profile-hint">Tap a player for profile</span>
           </div>
         </div>
 
@@ -322,6 +323,13 @@
       </div>
     </section>
   </main>
+
+  <div id="playerProfileModal" class="profile-modal hidden" role="dialog" aria-modal="true" aria-label="Player profile">
+    <div class="profile-modal-card">
+      <button id="closePlayerProfile" class="profile-close" aria-label="Close player profile">×</button>
+      <div id="playerProfileContent"></div>
+    </div>
+  </div>
 
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
     <div class="modal-card">
