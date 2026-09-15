@@ -26,6 +26,7 @@
     <nav class="nav-tabs" aria-label="Main navigation">
       <button class="nav-btn active" data-view="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-view="stats">Stats</button>
+      <button class="nav-btn member-only hidden" data-view="community">Community</button>
       <button class="nav-btn" data-view="submit">Submit Match</button>
       <button class="nav-btn member-only hidden" data-view="my-matches">My Matches</button>
       <button class="nav-btn commissioner-only hidden" data-view="commissioner">Commissioner</button>
@@ -195,6 +196,120 @@
             <div id="rivalriesList" class="relationship-leaderboard"></div>
           </section>
         </div>
+      </div>
+    </section>
+
+
+    <section id="community" class="view">
+      <div class="community-hero panel">
+        <div>
+          <div class="panel-kicker">XO COMMUNITY • VERIFIED MEMBERS</div>
+          <h2>League Chat & Announcements</h2>
+          <p>Talk league, find games, and keep up with commissioner updates. Chat names are tied to verified roster identities.</p>
+        </div>
+        <div class="community-live-mark"><span></span>REALTIME</div>
+      </div>
+
+      <section class="panel announcements-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">PINNED</div>
+            <h3>Commissioner Announcements</h3>
+          </div>
+          <span class="tag gold">Official league updates</span>
+        </div>
+        <div id="announcementList" class="announcement-list">
+          <div class="empty">No announcements yet.</div>
+        </div>
+      </section>
+
+      <section id="announcementComposer" class="panel commissioner-only hidden community-admin-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">COMMISSIONER</div>
+            <h3>Post Announcement</h3>
+          </div>
+          <span class="tag red">Pinned</span>
+        </div>
+        <div class="announcement-compose-grid">
+          <label>Title
+            <input id="announcementTitle" class="input" type="text" maxlength="80" placeholder="League update" />
+          </label>
+          <label>Expires
+            <select id="announcementExpiry">
+              <option value="none">No expiration</option>
+              <option value="24">24 hours</option>
+              <option value="168">7 days</option>
+              <option value="720">30 days</option>
+            </select>
+          </label>
+        </div>
+        <label>Announcement
+          <textarea id="announcementBody" class="community-textarea announcement-textarea" maxlength="1000" placeholder="Write the league announcement…"></textarea>
+        </label>
+        <div class="community-compose-footer">
+          <span id="announcementCount">0 / 1000</span>
+          <button id="postAnnouncementBtn" class="btn gold-btn">Post announcement</button>
+        </div>
+        <div id="announcementMessage" class="form-message"></div>
+      </section>
+
+      <div class="community-layout">
+        <section class="panel chat-panel">
+          <div class="chat-header">
+            <div class="chat-channel-tabs">
+              <button class="chat-channel active" data-chat-channel="community">
+                <span>#</span>
+                <div><strong>Community</strong><small>League talk</small></div>
+              </button>
+              <button class="chat-channel" data-chat-channel="game-finder">
+                <span>⌖</span>
+                <div><strong>Game Finder</strong><small>Find players</small></div>
+              </button>
+            </div>
+            <div class="chat-live-badge"><i></i> LIVE</div>
+          </div>
+
+          <div id="chatChannelDescription" class="chat-channel-description">
+            General league conversation for verified XO players.
+          </div>
+
+          <div id="chatAccessMessage" class="callout hidden"></div>
+
+          <div id="chatMessageList" class="chat-message-list">
+            <div class="empty">Loading messages…</div>
+          </div>
+
+          <div class="chat-composer">
+            <textarea id="chatInput" class="community-textarea chat-input" maxlength="500" placeholder="Message #community…"></textarea>
+            <div class="community-compose-footer">
+              <span id="chatCharCount">0 / 500</span>
+              <button id="sendChatBtn" class="btn primary">Send</button>
+            </div>
+            <div id="chatSendMessage" class="form-message"></div>
+          </div>
+        </section>
+
+        <aside class="community-sidebar">
+          <section class="panel community-info-card">
+            <div class="panel-kicker">CHANNEL GUIDE</div>
+            <h3># Community</h3>
+            <p>Rankings, league talk, results, trash talk, and general conversation.</p>
+            <h3>⌖ Game Finder</h3>
+            <p>Post when you need a partner, opponents, a fourth, or want to set up a game.</p>
+            <div class="verified-chat-note"><b>✓ Verified names</b><span>Only accounts linked to a roster player can participate.</span></div>
+          </section>
+
+          <section id="muteManager" class="panel commissioner-only hidden">
+            <div class="panel-head">
+              <div><div class="panel-kicker">MODERATION</div><h3>Muted Players</h3></div>
+              <span id="muteCountBadge" class="tag red">0 active</span>
+            </div>
+            <div id="muteList" class="mute-list">
+              <div class="empty">No active chat mutes.</div>
+            </div>
+          </section>
+        </aside>
       </div>
     </section>
 

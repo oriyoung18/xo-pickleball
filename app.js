@@ -33,6 +33,14 @@
   let statsLoading = false;
   let openProfilePlayerId = null;
 
+  // Upgrade 6 — Community
+  let communityMessages = [];
+  let announcements = [];
+  let chatMutes = [];
+  let activeChatChannel = "community";
+  let communityLoaded = false;
+  let communityLoading = false;
+
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
@@ -61,6 +69,10 @@
     if (id === "stats") {
       renderStatsHub();
       loadStatsMatches();
+    }
+    if (id === "community") {
+      renderCommunity();
+      loadCommunityData();
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -446,7 +458,12 @@
       match_rejected:`rejected a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       player_added:`added ${d.player_name || "a player"} at ${d.starting_rating ?? "?"}`,
       rating_changed:`changed ${d.player_name || "a player"} from ${d.old_rating ?? "?"} to ${d.new_rating ?? "?"}`,
-      season_created:`started ${d.season_name || "a new season"} (${d.starting_mode === "fresh" ? "fresh ratings" : "carried ratings"})`
+      season_created:`started ${d.season_name || "a new season"} (${d.starting_mode === "fresh" ? "fresh ratings" : "carried ratings"})`,
+      chat_message_deleted:`deleted a ${d.channel || "chat"} message from ${d.author_name || "a player"}`,
+      chat_user_muted:`muted ${d.player_name || d.user_name || "a player"}${d.hours === 0 ? " indefinitely" : ` for ${d.hours || "?"}h`}`,
+      chat_user_unmuted:`unmuted ${d.player_name || d.user_name || "a player"}`,
+      announcement_posted:`posted announcement "${d.title || "League update"}"`,
+      announcement_deleted:`deleted announcement "${d.title || "League update"}"`
     };
     return map[a.action] || a.action.replaceAll("_"," ");
   }
@@ -454,7 +471,7 @@
   function renderAudit() {
     $("auditList").innerHTML = auditLogs.length ? auditLogs.map(a => `
       <div class="audit-row">
-        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : "XO"}</div>
+        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : "XO"}</div>
         <div class="audit-copy"><strong>${esc(a.actor_name)}</strong><span>${esc(auditDescription(a))}</span></div>
         <time>${new Date(a.created_at).toLocaleString()}</time>
       </div>`).join("") : `<div class="empty">Audit events will appear here as the league is used.</div>`;
@@ -1042,6 +1059,288 @@
     }
   }
 
+
+  function activeMuteForUser(userId) {
+    if (!userId) return null;
+    const mute = chatMutes.find(m => m.user_id === userId);
+    if (!mute) return null;
+    if (!mute.muted_until) return mute;
+    return new Date(mute.muted_until).getTime() > Date.now() ? mute : null;
+  }
+
+  function chatTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })
+      : d.toLocaleDateString([], { month:"short", day:"numeric" }) + " • " +
+        d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+  }
+
+  function renderAnnouncements() {
+    const list = $("announcementList");
+    if (!list) return;
+    list.innerHTML = announcements.length ? announcements.map(a => `
+      <article class="announcement-card">
+        <div class="announcement-pin">📌</div>
+        <div class="announcement-copy">
+          <div class="announcement-meta">
+            <span>COMMISSIONER ANNOUNCEMENT</span>
+            <time>${chatTime(a.created_at)}</time>
+          </div>
+          <h4>${esc(a.title)}</h4>
+          <p>${esc(a.body).replace(/\n/g,"<br>")}</p>
+          <small>Posted by ${esc(a.author_name || "Commissioner")}${a.expires_at ? ` • expires ${new Date(a.expires_at).toLocaleString()}` : ""}</small>
+        </div>
+        ${isCommissioner() ? `<button class="announcement-delete" data-delete-announcement="${a.id}" title="Delete announcement">×</button>` : ""}
+      </article>
+    `).join("") : `<div class="empty">No active commissioner announcements.</div>`;
+  }
+
+  function renderMuteManager() {
+    const list = $("muteList");
+    if (!list) return;
+    const active = chatMutes.filter(m => !m.muted_until || new Date(m.muted_until).getTime() > Date.now());
+    $("muteCountBadge").textContent = `${active.length} active`;
+    list.innerHTML = active.length ? active.map(m => {
+      const profile = profileById(m.user_id);
+      const player = profile?.player_id ? playerById(profile.player_id) : null;
+      const name = player?.name || profile?.full_name || "League account";
+      const until = m.muted_until ? `Until ${new Date(m.muted_until).toLocaleString()}` : "Indefinite";
+      return `<div class="mute-row">
+        <div>
+          <strong>${esc(name)}</strong>
+          <span>${esc(until)}${m.reason ? ` • ${esc(m.reason)}` : ""}</span>
+        </div>
+        <button class="mini-compare-btn" data-unmute-user="${m.user_id}">Unmute</button>
+      </div>`;
+    }).join("") : `<div class="empty">No active chat mutes.</div>`;
+  }
+
+  function renderChatMessages() {
+    const list = $("chatMessageList");
+    if (!list) return;
+    if (!currentUser) {
+      list.innerHTML = `<div class="empty">Sign in to view league chat.</div>`;
+      return;
+    }
+    if (!linkedPlayer() && !isCommissioner()) {
+      list.innerHTML = `<div class="empty">Your roster identity must be approved before you can view player chat.</div>`;
+      return;
+    }
+    list.innerHTML = communityMessages.length ? communityMessages.map(m => `
+      <article class="chat-message ${m.author_role === "commissioner" ? "commissioner-message" : ""}">
+        <div class="chat-avatar">${esc(initials(m.author_name))}</div>
+        <div class="chat-message-main">
+          <div class="chat-message-head">
+            <strong>${esc(m.author_name)} <span class="verified-check">✓</span></strong>
+            ${m.author_role === "commissioner" ? `<span class="commissioner-chat-badge">COMMISSIONER</span>` : ""}
+            <time>${chatTime(m.created_at)}</time>
+          </div>
+          <div class="chat-message-body">${esc(m.body).replace(/\n/g,"<br>")}</div>
+        </div>
+        ${isCommissioner() ? `<div class="chat-mod-actions">
+          <button data-delete-chat="${m.id}" title="Delete message">Delete</button>
+          ${m.user_id !== currentUser?.id ? `<button data-mute-chat-user="${m.user_id}" data-mute-name="${esc(m.author_name)}" title="Mute player">Mute</button>` : ""}
+        </div>` : ""}
+      </article>
+    `).join("") : `<div class="empty">No messages yet. Start the conversation.</div>`;
+
+    requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+
+  function renderCommunity() {
+    if (!$("community")) return;
+    renderAnnouncements();
+    renderChatMessages();
+    renderMuteManager();
+
+    $$(".chat-channel").forEach(btn => btn.classList.toggle("active", btn.dataset.chatChannel === activeChatChannel));
+    const desc = activeChatChannel === "community"
+      ? "General league conversation for verified XO players."
+      : "Looking for a partner, opponents, or a fourth? Post it here.";
+    $("chatChannelDescription").textContent = desc;
+    $("chatInput").placeholder = activeChatChannel === "community"
+      ? "Message #community…"
+      : "Find a game… e.g. need a fourth tonight at 8";
+
+    const access = $("chatAccessMessage");
+    const send = $("sendChatBtn");
+    const input = $("chatInput");
+    const lp = linkedPlayer();
+    const mute = activeMuteForUser(currentUser?.id);
+
+    let accessText = "";
+    if (!currentUser) {
+      accessText = "Sign in to access league chat.";
+    } else if (!lp && !isCommissioner()) {
+      accessText = "Your player identity must be approved before you can read or send league chat messages.";
+    } else if (mute) {
+      accessText = mute.muted_until
+        ? `Your chat access is muted until ${new Date(mute.muted_until).toLocaleString()}.`
+        : "Your chat access is muted by the commissioner.";
+      if (mute.reason) accessText += ` Reason: ${mute.reason}`;
+    }
+
+    access.classList.toggle("hidden", !accessText);
+    access.textContent = accessText;
+
+    const canSend = !!currentUser && (!!lp || isCommissioner()) && !mute && configured;
+    send.disabled = !canSend;
+    input.disabled = !canSend;
+    send.style.opacity = canSend ? "1" : ".5";
+    input.style.opacity = canSend ? "1" : ".65";
+  }
+
+  async function loadCommunityData(force=false) {
+    if (!$("community") || !configured) {
+      renderCommunity();
+      return;
+    }
+    if (communityLoading) return;
+    if (communityLoaded && !force) {
+      renderCommunity();
+      return;
+    }
+
+    communityLoading = true;
+    try {
+      const announcementPromise = sb.from("announcements")
+        .select("*")
+        .order("created_at", { ascending:false })
+        .limit(10);
+
+      let messagePromise = Promise.resolve({ data:[], error:null });
+      let mutePromise = Promise.resolve({ data:[], error:null });
+
+      if (currentUser && (linkedPlayer() || isCommissioner())) {
+        messagePromise = sb.from("chat_messages")
+          .select("*")
+          .eq("channel", activeChatChannel)
+          .order("created_at", { ascending:false })
+          .limit(100);
+        mutePromise = sb.from("chat_mutes")
+          .select("*")
+          .order("muted_at", { ascending:false });
+      }
+
+      const [aRes, mRes, muteRes] = await Promise.all([announcementPromise, messagePromise, mutePromise]);
+
+      if (aRes.error) throw aRes.error;
+      announcements = aRes.data || [];
+
+      if (!mRes.error) communityMessages = [...(mRes.data || [])].reverse();
+      else communityMessages = [];
+
+      if (!muteRes.error) chatMutes = muteRes.data || [];
+      else chatMutes = [];
+
+      communityLoaded = true;
+      renderCommunity();
+    } catch (err) {
+      console.error(err);
+      setMessage($("chatSendMessage"), `Community load error: ${err.message || err}`, "error");
+    } finally {
+      communityLoading = false;
+    }
+  }
+
+  async function sendChatMessage() {
+    const body = $("chatInput").value.trim();
+    if (!body) return;
+    if (body.length > 500) return setMessage($("chatSendMessage"), "Message is too long.", "error");
+    if (!linkedPlayer() && !isCommissioner()) return setMessage($("chatSendMessage"), "Verified player identity required.", "error");
+
+    $("sendChatBtn").disabled = true;
+    const { error } = await sb.rpc("send_chat_message", {
+      p_channel: activeChatChannel,
+      p_body: body
+    });
+    $("sendChatBtn").disabled = false;
+
+    if (error) return setMessage($("chatSendMessage"), error.message, "error");
+    $("chatInput").value = "";
+    $("chatCharCount").textContent = "0 / 500";
+    setMessage($("chatSendMessage"), "");
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
+  async function deleteChatMessage(messageId) {
+    if (!isCommissioner()) return;
+    if (!confirm("Delete this chat message?")) return;
+    const { error } = await sb.rpc("commissioner_delete_chat_message", { p_message_id:messageId });
+    if (error) return alert(error.message);
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
+  async function muteChatUser(userId, displayName) {
+    if (!isCommissioner()) return;
+    const hoursRaw = prompt(`Mute ${displayName} for how many hours?\n\nUse 0 for an indefinite mute.`, "24");
+    if (hoursRaw === null) return;
+    const hours = Number(hoursRaw);
+    if (!Number.isInteger(hours) || hours < 0 || hours > 720) {
+      return alert("Enter a whole number from 0 to 720.");
+    }
+    const reason = prompt("Optional reason for the mute:", "") ?? "";
+    const { error } = await sb.rpc("commissioner_mute_chat_user", {
+      p_user_id:userId,
+      p_hours:hours,
+      p_reason:reason
+    });
+    if (error) return alert(error.message);
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
+  async function unmuteChatUser(userId) {
+    if (!isCommissioner()) return;
+    const { error } = await sb.rpc("commissioner_unmute_chat_user", { p_user_id:userId });
+    if (error) return alert(error.message);
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
+  async function postAnnouncement() {
+    if (!isCommissioner()) return;
+    const title = $("announcementTitle").value.trim();
+    const body = $("announcementBody").value.trim();
+    const expiry = $("announcementExpiry").value;
+
+    if (title.length < 3) return setMessage($("announcementMessage"), "Give the announcement a title.", "error");
+    if (!body) return setMessage($("announcementMessage"), "Write the announcement.", "error");
+
+    let expiresAt = null;
+    if (expiry !== "none") expiresAt = new Date(Date.now() + Number(expiry) * 3600000).toISOString();
+
+    $("postAnnouncementBtn").disabled = true;
+    const { error } = await sb.rpc("commissioner_post_announcement", {
+      p_title:title,
+      p_body:body,
+      p_expires_at:expiresAt
+    });
+    $("postAnnouncementBtn").disabled = false;
+
+    if (error) return setMessage($("announcementMessage"), error.message, "error");
+    $("announcementTitle").value = "";
+    $("announcementBody").value = "";
+    $("announcementCount").textContent = "0 / 1000";
+    setMessage($("announcementMessage"), "Announcement posted.", "success");
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
+  async function deleteAnnouncement(id) {
+    if (!isCommissioner()) return;
+    if (!confirm("Delete this announcement?")) return;
+    const { error } = await sb.rpc("commissioner_delete_announcement", { p_announcement_id:id });
+    if (error) return alert(error.message);
+    communityLoaded = false;
+    await loadCommunityData(true);
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -1085,6 +1384,7 @@
     renderSeasonControls();
     renderLeaderboard();
     renderStatsHub();
+    renderCommunity();
     renderSelects();
     renderAuth();
     renderMyMatches();
@@ -1136,6 +1436,7 @@
     seasonStats = ssRes.data || [];
     playerProfileCache.clear();
     statsMatchesCache.clear();
+    communityLoaded = false;
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
@@ -1385,13 +1686,25 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v5")
+    realtimeChannel = sb.channel("xo-league-live-v6")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"audit_log" }, () => { if (isCommissioner()) loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"seasons" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"season_player_stats" }, () => loadData())
+      .on("postgres_changes", { event:"*", schema:"public", table:"chat_messages" }, () => {
+        communityLoaded = false;
+        if ($("community")?.classList.contains("active")) loadCommunityData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"announcements" }, () => {
+        communityLoaded = false;
+        if ($("community")?.classList.contains("active")) loadCommunityData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"chat_mutes" }, () => {
+        communityLoaded = false;
+        if ($("community")?.classList.contains("active")) loadCommunityData(true);
+      })
       .subscribe();
   }
 
@@ -1440,6 +1753,44 @@
         window.scrollTo({top:$("stats").offsetTop,behavior:"smooth"});
       }
     });
+
+    $$(".chat-channel").forEach(btn => btn.addEventListener("click", async () => {
+      activeChatChannel = btn.dataset.chatChannel;
+      communityMessages = [];
+      communityLoaded = false;
+      renderCommunity();
+      await loadCommunityData(true);
+    }));
+    $("chatInput").addEventListener("input", () => {
+      $("chatCharCount").textContent = `${$("chatInput").value.length} / 500`;
+    });
+    $("chatInput").addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+    $("sendChatBtn").addEventListener("click", sendChatMessage);
+    $("announcementBody").addEventListener("input", () => {
+      $("announcementCount").textContent = `${$("announcementBody").value.length} / 1000`;
+    });
+    $("postAnnouncementBtn").addEventListener("click", postAnnouncement);
+
+    $("announcementList").addEventListener("click", e => {
+      const del = e.target.closest("[data-delete-announcement]");
+      if (del) deleteAnnouncement(del.dataset.deleteAnnouncement);
+    });
+    $("chatMessageList").addEventListener("click", e => {
+      const del = e.target.closest("[data-delete-chat]");
+      if (del) return deleteChatMessage(del.dataset.deleteChat);
+      const mute = e.target.closest("[data-mute-chat-user]");
+      if (mute) return muteChatUser(mute.dataset.muteChatUser, mute.dataset.muteName || "player");
+    });
+    $("muteList").addEventListener("click", e => {
+      const unmute = e.target.closest("[data-unmute-user]");
+      if (unmute) unmuteChatUser(unmute.dataset.unmuteUser);
+    });
+
     ["a1","a2","b1","b2"].forEach(id => $(id).addEventListener("change", updateTeamLabels));
     $("submitMatchBtn").addEventListener("click", submitMatch);
 
