@@ -792,97 +792,190 @@
       <div id="commissionerDenied" class="panel denied hidden">
         <div class="big-greek">ΧΦ</div>
         <h3>Commissioner access only.</h3>
-        <p>This page is locked at the database level. Sign in with the account assigned the commissioner role.</p>
+        <p>This page is locked at the database level. Sign in with an account assigned the commissioner role.</p>
       </div>
 
       <div id="commissionerContent" class="hidden">
-        <div class="commissioner-hero">
-          <div><div class="panel-kicker">COMMISSIONER ROOM</div><h2>Ori's Control Booth</h2></div>
-          <span class="tag red">ORI YOUNG • COMMISSIONER</span>
+        <div class="commissioner-hero admin2-hero">
+          <div>
+            <div class="panel-kicker">COMMISSIONER DASHBOARD 2.0</div>
+            <h2>Ori's Control Booth</h2>
+            <p>Roster, corrections, seasons, tournaments, announcements, accounts, and the full audit trail in one place.</p>
+          </div>
+          <div class="admin2-hero-actions">
+            <span class="tag red">ORI YOUNG • COMMISSIONER</span>
+            <button id="adminRefreshBtn" class="btn outline">Refresh admin data</button>
+          </div>
         </div>
 
-        <div class="two-col">
-          <div>
-            <section class="panel">
-              <div class="panel-head">
-                <div><div class="panel-kicker">IDENTITY QUEUE</div><h3>Player Claims</h3></div>
-                <span id="claimQueueBadge" class="tag gold">0 pending</span>
-              </div>
-              <div id="claimQueueList" class="match-list"></div>
-            </section>
+        <div class="admin-summary-grid">
+          <div><span>ACTIVE PLAYERS</span><b id="adminActivePlayers">0</b></div>
+          <div><span>LINKED ACCOUNTS</span><b id="adminLinkedAccounts">0</b></div>
+          <div><span>PENDING CLAIMS</span><b id="adminPendingClaims">0</b></div>
+          <div><span>MATCH REVIEW</span><b id="adminPendingMatches">0</b></div>
+          <div><span>LIVE TOURNAMENTS</span><b id="adminLiveTournaments">0</b></div>
+        </div>
 
-            <section class="panel history-panel">
-              <div class="panel-head">
-                <div><div class="panel-kicker">MATCH QUEUE</div><h3>Confirmed / Disputed Scores</h3></div>
-                <span id="pendingBadge" class="tag gold">0 pending</span>
-              </div>
-              <div id="pendingList" class="match-list"></div>
-            </section>
+        <section class="panel admin-command-bar">
+          <div>
+            <div class="panel-kicker">ADMIN SEARCH</div>
+            <h3>Find anything fast</h3>
+          </div>
+          <input id="adminSearch" class="input" type="search" placeholder="Search players, accounts, emails…" />
+          <span id="adminLoadStatus" class="tag gold">Ready</span>
+        </section>
+
+        <div class="challenge-dashboard-grid admin-review-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">IDENTITY QUEUE</div><h3>Player Claims</h3></div>
+              <span id="claimQueueBadge" class="tag gold">0 pending</span>
+            </div>
+            <div id="claimQueueList" class="match-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">MATCH QUEUE</div><h3>Confirmed / Disputed Scores</h3></div>
+              <span id="pendingBadge" class="tag gold">0 pending</span>
+            </div>
+            <div id="pendingList" class="match-list"></div>
+          </section>
+        </div>
+
+        <section class="panel admin-player-panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-kicker">PLAYER MANAGEMENT</div>
+              <h3>Roster Directory</h3>
+            </div>
+            <span class="tag gold">Rename • Activate • Deactivate</span>
           </div>
 
-          <div>
-            <section class="panel season-admin-panel">
-              <div class="panel-kicker">SEASON CONTROL</div>
-              <h3>Current Season</h3>
-              <div id="commissionerActiveSeason" class="active-season-card">
-                <strong>Fall 2026</strong><span>Active season</span>
-              </div>
-
-              <h3 class="space-top">Start Next Season</h3>
-              <p class="muted-copy">Starting a new season archives the current standings without deleting them. All-Time career records keep running.</p>
-              <div class="season-admin-grid">
-                <label>Season name<input id="newSeasonName" class="input" type="text" placeholder="Spring 2027" /></label>
-                <label>Starting ratings
-                  <select id="newSeasonMode">
-                    <option value="fresh">Fresh — everyone starts 1500</option>
-                    <option value="carry">Carry — keep current ratings</option>
-                  </select>
-                </label>
-                <button id="createSeasonBtn" class="btn gold-btn">Start season</button>
-              </div>
-              <div class="season-mode-note">
-                <b>Fresh</b> gives the semester its own clean race. <b>Carry</b> preserves skill ratings but resets season W-L to 0-0.
-              </div>
-              <div id="seasonAdminMessage" class="form-message"></div>
-            </section>
-
-            <section class="panel history-panel">
-              <div class="panel-kicker">ROSTER CONTROL</div>
-              <h3>Add Player</h3>
+          <div class="admin-quick-tools">
+            <div class="admin-tool-card">
+              <h4>Add Player</h4>
               <div class="admin-row">
                 <label>Name<input id="newPlayerName" class="input" type="text" placeholder="Player name" /></label>
                 <label>Rating<input id="newPlayerRating" class="input" type="number" value="1500" /></label>
                 <button id="addPlayerBtn" class="btn gold-btn">Add</button>
               </div>
-
-              <h3 class="space-top">Adjust Rating</h3>
+            </div>
+            <div class="admin-tool-card">
+              <h4>Manual Rating Fix</h4>
               <div class="admin-row">
                 <label>Player<select id="editPlayer"></select></label>
                 <label>Rating<input id="editRating" class="input" type="number" value="1500" /></label>
                 <button id="setRatingBtn" class="btn outline">Update</button>
               </div>
-              <h3 class="space-top">Fix Identity Link</h3>
+            </div>
+            <div class="admin-tool-card">
+              <h4>Fix Identity Link</h4>
               <div class="admin-row identity-admin-row">
                 <label>Claimed player<select id="unlinkPlayer"></select></label>
-                <div class="admin-helper">Use only if somebody claimed the wrong roster identity.</div>
                 <button id="unlinkPlayerBtn" class="btn outline">Unlink</button>
               </div>
-              <div id="adminMessage" class="form-message"></div>
-            </section>
-
-            <section class="panel history-panel">
-              <div class="panel-head">
-                <div><div class="panel-kicker">RECEIPTS</div><h3>Approved History</h3></div>
-              </div>
-              <div id="historyList" class="match-list"></div>
-            </section>
+            </div>
           </div>
+          <div id="adminMessage" class="form-message"></div>
+          <div id="adminPlayerList" class="admin-player-list"></div>
+        </section>
+
+        <div class="admin-two-col">
+          <section class="panel admin-danger-panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">DUPLICATE CLEANUP</div><h3>Merge Players</h3></div>
+              <span class="tag red">Permanent</span>
+            </div>
+            <p class="muted-copy">Keep one roster identity and move the duplicate's match/history references into it. The keeper's current rating is retained; records and historical references are consolidated.</p>
+            <div class="merge-grid">
+              <label>Keep this player<select id="mergeKeepPlayer"></select></label>
+              <div class="merge-arrow">←</div>
+              <label>Merge this duplicate<select id="mergeDuplicatePlayer"></select></label>
+            </div>
+            <button id="mergePlayersBtn" class="btn danger-btn wide">Merge duplicate into keeper</button>
+            <div id="mergeMessage" class="form-message"></div>
+          </section>
+
+          <section class="panel admin-danger-panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">MATCH CORRECTIONS</div><h3>Reverse Approved Game</h3></div>
+              <span class="tag red">Audited reversal</span>
+            </div>
+            <p class="muted-copy">Use this only for a wrongly approved result. XO applies the exact opposite of that match's stored rating/stat changes and keeps a permanent reversal receipt.</p>
+            <div id="historyList" class="match-list admin-reversal-list"></div>
+          </section>
         </div>
 
-        <section class="panel history-panel">
+        <div class="admin-management-grid">
+          <section class="panel season-admin-panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">SEASON CONTROL</div><h3>Manage Seasons</h3></div>
+              <span class="tag gold">One active</span>
+            </div>
+            <div id="commissionerActiveSeason" class="active-season-card">
+              <strong>Fall 2026</strong><span>Active season</span>
+            </div>
+
+            <h4 class="space-top">Start Next Season</h4>
+            <div class="season-admin-grid">
+              <label>Season name<input id="newSeasonName" class="input" type="text" placeholder="Spring 2027" /></label>
+              <label>Starting ratings
+                <select id="newSeasonMode">
+                  <option value="fresh">Fresh — everyone starts 1500</option>
+                  <option value="carry">Carry — keep current ratings</option>
+                </select>
+              </label>
+              <button id="createSeasonBtn" class="btn gold-btn">Start season</button>
+            </div>
+            <div id="seasonAdminMessage" class="form-message"></div>
+            <div id="adminSeasonList" class="admin-manager-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">USER PERMISSIONS</div><h3>Accounts & Roles</h3></div>
+              <span class="tag red">Commissioner controlled</span>
+            </div>
+            <p class="muted-copy">Promote/demote commissioners and manually repair account-to-player identity links.</p>
+            <div id="adminUserList" class="admin-manager-list admin-user-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">TOURNAMENT CONTROL</div><h3>Manage Tournaments</h3></div>
+              <button class="mini-compare-btn" data-go="tournaments">Open brackets</button>
+            </div>
+            <div id="adminTournamentList" class="admin-manager-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><div class="panel-kicker">COMMUNICATIONS</div><h3>Manage Announcements</h3></div>
+              <button class="mini-compare-btn" data-go="community">Open Community</button>
+            </div>
+            <div id="adminAnnouncementList" class="admin-manager-list"></div>
+          </section>
+        </div>
+
+        <section class="panel history-panel admin-audit-panel">
           <div class="panel-head">
-            <div><div class="panel-kicker">AUDIT TRAIL</div><h3>Commissioner Audit Log</h3></div>
+            <div><div class="panel-kicker">AUDIT TRAIL</div><h3>Commissioner Audit History</h3></div>
             <span class="tag red">Permanent record</span>
+          </div>
+          <div class="audit-controls">
+            <input id="adminAuditSearch" class="input" type="search" placeholder="Search audit history…" />
+            <select id="adminAuditFilter">
+              <option value="all">All actions</option>
+              <option value="match">Matches</option>
+              <option value="player">Players / ratings</option>
+              <option value="identity">Identity</option>
+              <option value="season">Seasons</option>
+              <option value="tournament">Tournaments</option>
+              <option value="challenge">Challenges</option>
+              <option value="community">Chat / announcements</option>
+              <option value="user">Users / permissions</option>
+            </select>
           </div>
           <div id="auditList" class="audit-list"></div>
         </section>

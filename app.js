@@ -68,6 +68,15 @@
   let notificationDrawerOpen = false;
   let notificationToastTimer = null;
 
+  // Upgrade 11 — Commissioner Dashboard 2.0
+  let adminUsers = [];
+  let adminAnnouncements = [];
+  let adminTournaments = [];
+  let adminTournamentMatches = [];
+  let adminMatches = [];
+  let adminLoaded = false;
+  let adminLoading = false;
+
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
@@ -91,7 +100,10 @@
   function setView(id) {
     $$(".view").forEach(v => v.classList.toggle("active", v.id === id));
     $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === id));
-    if (id === "commissioner") renderCommissionerGate();
+    if (id === "commissioner") {
+      renderCommissionerGate();
+      loadAdminDashboardData();
+    }
     if (id === "my-matches") renderMyMatches();
     if (id === "stats") {
       renderStatsHub();
@@ -209,13 +221,14 @@
       pending:"Confirmed",
       disputed:"Disputed",
       approved:"Approved",
-      rejected:"Rejected"
+      rejected:"Rejected",
+      reversed:"Reversed"
     })[status] || status;
   }
 
   function statusClass(status) {
     if (status === "approved") return "status-approved";
-    if (status === "disputed" || status === "rejected") return "status-disputed";
+    if (status === "disputed" || status === "rejected" || status === "reversed") return "status-disputed";
     if (status === "pending") return "status-confirmed";
     return "status-waiting";
   }
@@ -507,18 +520,46 @@
       challenge_accepted:`accepted ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
       challenge_declined:`declined ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
       challenge_cancelled:`cancelled ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
-      challenge_completed:`marked ${d.team_a || "a team"} vs ${d.team_b || "another team"} as played`
+      challenge_completed:`marked ${d.team_a || "a team"} vs ${d.team_b || "another team"} as played`,
+      player_renamed:`renamed ${d.old_name || "a player"} to ${d.new_name || "new name"}`,
+      player_deactivated:`deactivated ${d.player_name || "a player"}`,
+      player_reactivated:`reactivated ${d.player_name || "a player"}`,
+      players_merged:`merged ${d.duplicate_name || "duplicate"} into ${d.keeper_name || "keeper"}`,
+      match_reversed:`reversed ${d.team_a || "Team A"} ${d.score_a ?? "?"}-${d.score_b ?? "?"} ${d.team_b || "Team B"}${d.reason ? ` — ${d.reason}` : ""}`,
+      season_renamed:`renamed season ${d.old_name || ""} to ${d.new_name || ""}`,
+      season_activated:`made ${d.season_name || "a season"} active`,
+      tournament_cancelled:`cancelled tournament "${d.tournament_name || "Tournament"}"`,
+      announcement_hidden:`hid announcement "${d.title || "League update"}"`,
+      announcement_restored:`restored announcement "${d.title || "League update"}"`,
+      user_role_changed:`changed ${d.user_name || d.email || "an account"} from ${d.old_role || "?"} to ${d.new_role || "?"}`,
+      user_player_linked:`linked ${d.user_name || d.email || "an account"} to ${d.player_name || "a player"}`,
+      user_player_unlinked:`removed ${d.user_name || d.email || "an account"}'s player identity link`
     };
     return map[a.action] || a.action.replaceAll("_"," ");
   }
 
   function renderAudit() {
-    $("auditList").innerHTML = auditLogs.length ? auditLogs.map(a => `
-      <div class="audit-row">
-        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : a.action.startsWith("tournament_") ? "TR" : a.action.startsWith("challenge_") ? "VS" : "XO"}</div>
-        <div class="audit-copy"><strong>${esc(a.actor_name)}</strong><span>${esc(auditDescription(a))}</span></div>
-        <time>${new Date(a.created_at).toLocaleString()}</time>
-      </div>`).join("") : `<div class="empty">Audit events will appear here as the league is used.</div>`;
+    const root = $("auditList");
+    if (!root) return;
+    const q = ($("adminAuditSearch")?.value || "").trim().toLowerCase();
+    const filter = $("adminAuditFilter")?.value || "all";
+    const rows = auditLogs.filter(a => {
+      const category = adminAuditCategory(a.action);
+      if (filter !== "all" && category !== filter) return false;
+      if (!q) return true;
+      const hay = `${a.actor_name || ""} ${a.action || ""} ${auditDescription(a)} ${JSON.stringify(a.details || {})}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    root.innerHTML = rows.length ? rows.map(a => `
+      <details class="audit-row admin-audit-row">
+        <summary>
+          <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : a.action.startsWith("tournament_") ? "TR" : a.action.startsWith("challenge_") ? "VS" : a.action.startsWith("user_") ? "US" : a.action.startsWith("season_") ? "SE" : "XO"}</div>
+          <div class="audit-copy"><strong>${esc(a.actor_name)}</strong><span>${esc(auditDescription(a))}</span></div>
+          <time>${new Date(a.created_at).toLocaleString()}</time>
+        </summary>
+        <div class="audit-detail-json"><b>${esc(a.action)}</b><pre>${esc(JSON.stringify(a.details || {},null,2))}</pre></div>
+      </details>`).join("") : `<div class="empty">No audit events match those filters.</div>`;
   }
 
 
@@ -1898,7 +1939,9 @@
   }
 
   function tournamentStatusText(t) {
-    return t.status === "completed" ? "Completed" : "Live";
+    if (t.status === "completed") return "Completed";
+    if (t.status === "cancelled") return "Cancelled";
+    return "Live";
   }
 
   function renderTournamentBuilder() {
@@ -1981,7 +2024,7 @@
         ${m.status === "completed"
           ? `<span>Final</span>`
           : ready
-            ? `<span>Ready to play</span>${isCommissioner() ? `<button data-tournament-result="${m.id}">Enter result</button>` : ""}`
+            ? `<span>Ready to play</span>${isCommissioner() && t.status === "live" ? `<button data-tournament-result="${m.id}">Enter result</button>` : ""}`
             : `<span>Waiting for previous round</span>`}
       </div>
     </article>`;
@@ -2767,15 +2810,364 @@
     }, 4500);
   }
 
-  function renderHistory() {
-    const approved = matches.filter(m => m.status === "approved").slice(0, 30);
-    $("historyList").innerHTML = approved.length ? approved.map(m => {
-      const n = matchNames(m);
-      return `<article class="match-card">
-        <strong>${esc(n.teamA)} <span style="color:#6f7885">vs</span> ${esc(n.teamB)}</strong>
-        <small>${esc(seasonNameForMatch(m))} • ${m.score_a}-${m.score_b} • uncertainty-weighted rating update • ${new Date(m.reviewed_at || m.created_at).toLocaleString()}</small>
+
+  function adminPlayerOptions(selected="", includeInactive=true) {
+    const roster = [...players]
+      .filter(p => !p.merged_into_player_id && (includeInactive || p.active !== false))
+      .sort((a,b) => a.name.localeCompare(b.name));
+    return `<option value="">Choose player</option>` + roster.map(p =>
+      `<option value="${p.id}" ${selected===p.id ? "selected" : ""}>${esc(p.name)}${p.active === false ? " • INACTIVE" : ""} • ${p.rating}</option>`
+    ).join("");
+  }
+
+  function adminAuditCategory(action="") {
+    if (action.startsWith("match_")) return "match";
+    if (action.startsWith("identity_")) return "identity";
+    if (action.startsWith("season_")) return "season";
+    if (action.startsWith("tournament_")) return "tournament";
+    if (action.startsWith("challenge_")) return "challenge";
+    if (action.startsWith("chat_") || action.startsWith("announcement_")) return "community";
+    if (action.startsWith("user_") || action.includes("permission")) return "user";
+    if (action.startsWith("player_") || action.startsWith("players_") || action.startsWith("rating_")) return "player";
+    return "other";
+  }
+
+  function renderAdminSummary() {
+    if (!$('adminActivePlayers')) return;
+    $('adminActivePlayers').textContent = players.filter(p => p.active !== false && !p.merged_into_player_id).length;
+    $('adminLinkedAccounts').textContent = adminUsers.filter(u => u.player_id).length;
+    $('adminPendingClaims').textContent = identityClaims.filter(c => c.status === 'pending').length;
+    $('adminPendingMatches').textContent = matches.filter(m => ['pending','disputed'].includes(m.status)).length;
+    $('adminLiveTournaments').textContent = adminTournaments.filter(t => t.status === 'live').length;
+  }
+
+  function renderAdminMergeSelectors() {
+    if (!$('mergeKeepPlayer')) return;
+    const keep = $('mergeKeepPlayer').value;
+    const duplicate = $('mergeDuplicatePlayer').value;
+    $('mergeKeepPlayer').innerHTML = adminPlayerOptions(keep, true);
+    $('mergeDuplicatePlayer').innerHTML = adminPlayerOptions(duplicate, true);
+  }
+
+  function renderAdminPlayerDirectory() {
+    const root = $('adminPlayerList');
+    if (!root) return;
+    const q = ($('adminSearch')?.value || '').trim().toLowerCase();
+    const rows = [...players]
+      .filter(p => !q || p.name.toLowerCase().includes(q))
+      .sort((a,b) => {
+        if (!!a.merged_into_player_id !== !!b.merged_into_player_id) return a.merged_into_player_id ? 1 : -1;
+        if ((a.active !== false) !== (b.active !== false)) return a.active === false ? 1 : -1;
+        return a.name.localeCompare(b.name);
+      });
+
+    root.innerHTML = rows.length ? rows.map(p => {
+      const profile = profiles.find(pr => pr.player_id === p.id);
+      const mergedInto = p.merged_into_player_id ? playerById(p.merged_into_player_id) : null;
+      return `<article class="admin-player-row ${p.active === false ? 'inactive' : ''} ${p.merged_into_player_id ? 'merged' : ''}">
+        <div class="admin-player-avatar">${esc(initials(p.name))}</div>
+        <div class="admin-player-main">
+          <strong>${esc(p.name)}</strong>
+          <span>${p.merged_into_player_id ? `Merged into ${esc(mergedInto?.name || 'another player')}` : `${p.provisional ? 'PROV' : 'Official'} • ${p.wins || 0}-${p.losses || 0} • RD ±${p.rating_deviation ?? 350}`}</span>
+        </div>
+        <div class="admin-player-rating"><b>${p.rating}</b><span>rating</span></div>
+        <div class="admin-player-account">${profile ? `<b>✓ Linked</b><span>${esc(profile.full_name || 'League account')}</span>` : `<b>Unclaimed</b><span>No linked account</span>`}</div>
+        <div class="admin-player-state"><span class="${p.merged_into_player_id ? 'merged' : p.active === false ? 'inactive' : 'active'}">${p.merged_into_player_id ? 'MERGED' : p.active === false ? 'INACTIVE' : 'ACTIVE'}</span></div>
+        <div class="admin-player-actions">
+          ${p.merged_into_player_id ? '' : `<button data-admin-rename-player="${p.id}">Rename</button><button data-admin-toggle-player="${p.id}" data-next-active="${p.active === false ? 'true' : 'false'}">${p.active === false ? 'Reactivate' : 'Deactivate'}</button>`}
+        </div>
       </article>`;
-    }).join("") : `<div class="empty">No approved matches yet.</div>`;
+    }).join('') : `<div class="empty">No players match that search.</div>`;
+  }
+
+  function renderAdminUsers() {
+    const root = $('adminUserList');
+    if (!root) return;
+    const q = ($('adminSearch')?.value || '').trim().toLowerCase();
+    const rows = adminUsers.filter(u => !q || [u.email,u.full_name,u.player_name,u.role].some(x => String(x || '').toLowerCase().includes(q)));
+
+    root.innerHTML = rows.length ? rows.map(u => `
+      <article class="admin-manager-row admin-user-row">
+        <div class="admin-manager-copy">
+          <strong>${esc(u.full_name || u.email || 'League account')}</strong>
+          <span>${esc(u.email || 'No email')} • ${u.player_name ? `linked to ${esc(u.player_name)}` : 'no player identity'}</span>
+          <small>${u.last_sign_in_at ? `Last sign-in ${new Date(u.last_sign_in_at).toLocaleString()}` : 'No recorded sign-in yet'}</small>
+        </div>
+        <div class="admin-user-controls">
+          <select data-admin-role-select="${u.user_id}">
+            <option value="player" ${u.role==='player'?'selected':''}>Player</option>
+            <option value="commissioner" ${u.role==='commissioner'?'selected':''}>Commissioner</option>
+          </select>
+          <button class="mini-compare-btn" data-admin-save-role="${u.user_id}">Save role</button>
+          <select data-admin-link-select="${u.user_id}">
+            <option value="">No linked player</option>
+            ${[...players].filter(p => !p.merged_into_player_id && p.active !== false).sort((a,b)=>a.name.localeCompare(b.name)).map(p => `<option value="${p.id}" ${u.player_id===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          <button class="mini-compare-btn" data-admin-save-link="${u.user_id}">Save identity</button>
+        </div>
+      </article>`).join('') : `<div class="empty">No accounts match that search.</div>`;
+  }
+
+  function renderAdminSeasons() {
+    const root = $('adminSeasonList');
+    if (!root) return;
+    root.innerHTML = seasons.length ? seasons.map(s => `
+      <article class="admin-manager-row">
+        <div class="admin-manager-copy">
+          <strong>${esc(s.name)}</strong>
+          <span>${s.status === 'active' ? 'ACTIVE SEASON' : 'Archived'} • ${s.starting_mode === 'fresh' ? 'fresh ratings' : 'carried ratings'}${s.starts_on ? ` • started ${new Date(`${s.starts_on}T12:00:00`).toLocaleDateString()}` : ''}</span>
+        </div>
+        <div class="admin-manager-actions">
+          <button data-admin-rename-season="${s.id}">Rename</button>
+          ${s.status === 'active' ? `<span class="admin-current-pill">Current</span>` : `<button data-admin-activate-season="${s.id}">Make active</button>`}
+        </div>
+      </article>`).join('') : `<div class="empty">No seasons found.</div>`;
+  }
+
+  function renderAdminTournaments() {
+    const root = $('adminTournamentList');
+    if (!root) return;
+    const completedByTournament = new Map();
+    adminTournamentMatches.forEach(m => {
+      if (m.status === 'completed') completedByTournament.set(m.tournament_id,(completedByTournament.get(m.tournament_id)||0)+1);
+    });
+    root.innerHTML = adminTournaments.length ? adminTournaments.map(t => {
+      const completed = completedByTournament.get(t.id) || 0;
+      const champion = t.champion_player_id ? playerById(t.champion_player_id)?.name : null;
+      return `<article class="admin-manager-row">
+        <div class="admin-manager-copy">
+          <strong>${esc(t.name)}</strong>
+          <span>${esc(seasonById(t.season_id)?.name || 'Season')} • ${t.size} players • ${t.affects_ratings ? 'Elo ON' : 'Exhibition'} • ${tournamentStatusText(t)}</span>
+          <small>${champion ? `Champion: ${esc(champion)}` : `${completed} result${completed===1?'':'s'} recorded`}</small>
+        </div>
+        <div class="admin-manager-actions">
+          <button data-admin-open-tournament="${t.id}">Open</button>
+          ${t.status === 'live' ? `<button class="danger-text" data-admin-cancel-tournament="${t.id}" ${completed ? 'disabled title="Cannot cancel after results are recorded"' : ''}>Cancel</button>` : ''}
+        </div>
+      </article>`;
+    }).join('') : `<div class="empty">No tournaments yet.</div>`;
+  }
+
+  function renderAdminAnnouncements() {
+    const root = $('adminAnnouncementList');
+    if (!root) return;
+    root.innerHTML = adminAnnouncements.length ? adminAnnouncements.map(a => `
+      <article class="admin-manager-row">
+        <div class="admin-manager-copy">
+          <strong>${esc(a.title)}</strong>
+          <span>${a.active ? 'Visible' : 'Hidden'} • posted ${new Date(a.created_at).toLocaleString()}</span>
+          <small>${esc(String(a.body || '').slice(0,150))}${String(a.body || '').length > 150 ? '…' : ''}</small>
+        </div>
+        <div class="admin-manager-actions">
+          <button data-admin-toggle-announcement="${a.id}" data-next-active="${a.active ? 'false' : 'true'}">${a.active ? 'Hide' : 'Restore'}</button>
+          <button class="danger-text" data-admin-delete-announcement="${a.id}">Delete</button>
+        </div>
+      </article>`).join('') : `<div class="empty">No announcements yet.</div>`;
+  }
+
+  function renderAdminDashboard() {
+    if (!isCommissioner() || !$('commissionerContent')) return;
+    renderAdminSummary();
+    renderAdminPlayerDirectory();
+    renderAdminMergeSelectors();
+    renderAdminUsers();
+    renderAdminSeasons();
+    renderAdminTournaments();
+    renderAdminAnnouncements();
+    renderHistory();
+    renderAudit();
+  }
+
+  async function loadAdminDashboardData(force=false) {
+    if (!configured || !isCommissioner()) return;
+    if (adminLoading) return;
+    if (adminLoaded && !force) {
+      renderAdminDashboard();
+      return;
+    }
+
+    adminLoading = true;
+    if ($('adminLoadStatus')) $('adminLoadStatus').textContent = 'Loading…';
+    try {
+      const [usersRes, announcementsRes, tournamentsRes, tournamentMatchesRes, matchesRes, auditRes] = await Promise.all([
+        sb.rpc('commissioner_list_users'),
+        sb.from('announcements').select('*').order('created_at',{ascending:false}).limit(200),
+        sb.from('tournaments').select('*').order('created_at',{ascending:false}).limit(100),
+        sb.from('tournament_matches').select('id,tournament_id,status').order('created_at',{ascending:false}).limit(2000),
+        sb.from('matches').select('*').in('status',['approved','reversed']).order('created_at',{ascending:false}).limit(500),
+        sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(500)
+      ]);
+
+      if (usersRes.error) throw usersRes.error;
+      if (announcementsRes.error) throw announcementsRes.error;
+      if (tournamentsRes.error) throw tournamentsRes.error;
+      if (tournamentMatchesRes.error) throw tournamentMatchesRes.error;
+      if (matchesRes.error) throw matchesRes.error;
+      if (auditRes.error) throw auditRes.error;
+
+      adminUsers = usersRes.data || [];
+      adminAnnouncements = announcementsRes.data || [];
+      adminTournaments = tournamentsRes.data || [];
+      adminTournamentMatches = tournamentMatchesRes.data || [];
+      adminMatches = matchesRes.data || [];
+      auditLogs = auditRes.data || [];
+      adminLoaded = true;
+      if ($('adminLoadStatus')) $('adminLoadStatus').textContent = 'Live admin data';
+      renderAdminDashboard();
+    } catch (err) {
+      console.error(err);
+      if ($('adminLoadStatus')) $('adminLoadStatus').textContent = 'Admin load failed';
+      setMessage($('adminMessage'), err.message || String(err), 'error');
+    } finally {
+      adminLoading = false;
+    }
+  }
+
+  async function adminRenamePlayer(playerId) {
+    if (!isCommissioner()) return;
+    const p = playerById(playerId);
+    if (!p) return;
+    const next = prompt(`Rename ${p.name}:`, p.name);
+    if (next === null) return;
+    const name = next.trim();
+    if (name.length < 2 || name === p.name) return;
+    const { error } = await sb.rpc('commissioner_rename_player',{p_player_id:playerId,p_name:name});
+    if (error) return alert(error.message);
+    adminLoaded = false;
+    await loadData();
+    await loadAdminDashboardData(true);
+  }
+
+  async function adminTogglePlayer(playerId, nextActive) {
+    if (!isCommissioner()) return;
+    const p = playerById(playerId);
+    if (!p) return;
+    const verb = nextActive ? 'reactivate' : 'deactivate';
+    if (!confirm(`${verb[0].toUpperCase()+verb.slice(1)} ${p.name}?\n\n${nextActive ? 'They will return to the active roster.' : 'They will disappear from active rankings and player selectors, but historical results stay intact.'}`)) return;
+    const { error } = await sb.rpc('commissioner_set_player_active',{p_player_id:playerId,p_active:nextActive});
+    if (error) return alert(error.message);
+    adminLoaded = false;
+    await loadData();
+    await loadAdminDashboardData(true);
+  }
+
+  async function adminMergePlayers() {
+    if (!isCommissioner()) return;
+    const keeperId = $('mergeKeepPlayer').value;
+    const duplicateId = $('mergeDuplicatePlayer').value;
+    if (!keeperId || !duplicateId) return setMessage($('mergeMessage'),'Choose both players.','error');
+    if (keeperId === duplicateId) return setMessage($('mergeMessage'),'Keeper and duplicate must be different players.','error');
+    const keeper = playerById(keeperId), duplicate = playerById(duplicateId);
+    if (!confirm(`MERGE DUPLICATE?\n\nKEEP: ${keeper?.name}\nMERGE INTO KEEP: ${duplicate?.name}\n\n${keeper?.name}'s current rating (${keeper?.rating}) is retained. ${duplicate?.name}'s match history, records, identity references, and supported league references move to ${keeper?.name}.\n\nThis is a permanent audited cleanup action.`)) return;
+    $('mergePlayersBtn').disabled = true;
+    const { error } = await sb.rpc('commissioner_merge_players',{p_keep_player_id:keeperId,p_duplicate_player_id:duplicateId});
+    $('mergePlayersBtn').disabled = false;
+    if (error) return setMessage($('mergeMessage'),error.message,'error');
+    $('mergeKeepPlayer').value=''; $('mergeDuplicatePlayer').value='';
+    setMessage($('mergeMessage'),'Players merged successfully.','success');
+    adminLoaded = false;
+    await loadData();
+    await loadAdminDashboardData(true);
+  }
+
+  async function adminReverseMatch(matchId) {
+    if (!isCommissioner()) return;
+    const m = (adminMatches.length ? adminMatches : matches).find(x => x.id===matchId);
+    if (!m || m.status !== 'approved') return;
+    const n = matchNames(m);
+    const reason = prompt(`Why are you reversing this approved game?\n\n${n.teamA} ${m.score_a}-${m.score_b} ${n.teamB}`, 'Incorrectly approved result');
+    if (reason === null) return;
+    if (reason.trim().length < 3) return alert('Enter a short reason for the reversal.');
+    if (!confirm(`FINAL CONFIRMATION\n\nReverse ${n.teamA} ${m.score_a}-${m.score_b} ${n.teamB}?\n\nXO will apply the exact opposite of this match's stored rating and W-L changes and mark the match REVERSED. Later matches are NOT replayed, so this is a compensating correction rather than a full historical re-simulation.`)) return;
+    const { error } = await sb.rpc('commissioner_reverse_match',{p_match_id:matchId,p_reason:reason.trim()});
+    if (error) return alert(error.message);
+    adminLoaded = false;
+    playerProfileCache.clear();
+    statsMatchesCache.clear();
+    advancedStatsCache.clear();
+    await loadData();
+    await loadAdminDashboardData(true);
+  }
+
+  async function adminRenameSeason(seasonId) {
+    const s = seasonById(seasonId); if (!s) return;
+    const next = prompt(`Rename season:`,s.name); if (next===null) return;
+    const name=next.trim(); if (name.length<3 || name===s.name) return;
+    const {error}=await sb.rpc('commissioner_rename_season',{p_season_id:seasonId,p_name:name});
+    if(error) return alert(error.message);
+    adminLoaded=false; await loadData(); await loadAdminDashboardData(true);
+  }
+
+  async function adminActivateSeason(seasonId) {
+    const s=seasonById(seasonId); if(!s || s.status==='active') return;
+    const current=activeSeason();
+    if(!confirm(`Make ${s.name} the ACTIVE season?\n\n${current ? `${current.name} will be archived. ` : ''}New submitted matches will be tagged to ${s.name}. Existing standings for both seasons are preserved.`)) return;
+    const {error}=await sb.rpc('commissioner_activate_season',{p_season_id:seasonId});
+    if(error) return alert(error.message);
+    selectedSeasonId=seasonId; adminLoaded=false; await loadData(); await loadAdminDashboardData(true);
+  }
+
+  async function adminCancelTournament(tournamentId) {
+    const t=adminTournaments.find(x=>x.id===tournamentId) || tournamentById(tournamentId); if(!t) return;
+    if(!confirm(`Cancel ${t.name}?\n\nThis is only allowed before any tournament results have been recorded. The bracket will remain in admin history.`)) return;
+    const {error}=await sb.rpc('commissioner_cancel_tournament',{p_tournament_id:tournamentId});
+    if(error) return alert(error.message);
+    tournamentLoaded=false; adminLoaded=false; await loadAdminDashboardData(true); if($('tournaments')?.classList.contains('active')) await loadTournamentData(true);
+  }
+
+  async function adminToggleAnnouncement(id,nextActive) {
+    const {error}=await sb.rpc('commissioner_set_announcement_active',{p_announcement_id:id,p_active:nextActive});
+    if(error) return alert(error.message);
+    communityLoaded=false; adminLoaded=false; await loadAdminDashboardData(true);
+  }
+
+  async function adminDeleteAnnouncement(id) {
+    const a=adminAnnouncements.find(x=>x.id===id); if(!a) return;
+    if(!confirm(`Delete announcement "${a.title}" permanently?`)) return;
+    const {error}=await sb.rpc('commissioner_delete_announcement',{p_announcement_id:id});
+    if(error) return alert(error.message);
+    communityLoaded=false; adminLoaded=false; await loadAdminDashboardData(true);
+  }
+
+  async function adminSaveUserRole(userId) {
+    const select=document.querySelector(`[data-admin-role-select="${userId}"]`); if(!select) return;
+    const role=select.value;
+    const u=adminUsers.find(x=>x.user_id===userId);
+    if(!confirm(`Set ${u?.full_name || u?.email || 'this account'} to ${role.toUpperCase()}?`)) return;
+    const {error}=await sb.rpc('commissioner_set_user_role',{p_user_id:userId,p_role:role});
+    if(error) return alert(error.message);
+    adminLoaded=false;
+    if(userId===currentUser?.id) await refreshProfile();
+    await loadData();
+    if(isCommissioner()) await loadAdminDashboardData(true);
+  }
+
+  async function adminSaveUserLink(userId) {
+    const select=document.querySelector(`[data-admin-link-select="${userId}"]`); if(!select) return;
+    const playerId=select.value || null;
+    const u=adminUsers.find(x=>x.user_id===userId);
+    const player=playerId ? playerById(playerId) : null;
+    if(!confirm(`${player ? `Link ${u?.full_name || u?.email || 'this account'} to ${player.name}` : `Remove the player identity link from ${u?.full_name || u?.email || 'this account'}`}?`)) return;
+    const {error}=await sb.rpc('commissioner_assign_user_player',{p_user_id:userId,p_player_id:playerId});
+    if(error) return alert(error.message);
+    adminLoaded=false;
+    if(userId===currentUser?.id) await refreshProfile();
+    await loadData();
+    await loadAdminDashboardData(true);
+  }
+
+  function renderHistory() {
+    const source = adminMatches.length ? adminMatches : matches.filter(m => ["approved","reversed"].includes(m.status));
+    const rows = source.slice(0,60);
+    $("historyList").innerHTML = rows.length ? rows.map(m => {
+      const n = matchNames(m);
+      const reversed = m.status === "reversed";
+      return `<article class="match-card ${reversed ? "reversed-match-card" : ""}">
+        <div class="match-card-head"><strong>${esc(n.teamA)} <span>vs</span> ${esc(n.teamB)}</strong><span class="status-pill ${statusClass(m.status)}">${statusLabel(m.status)}</span></div>
+        <small>${esc(seasonNameForMatch(m))} • ${m.score_a}-${m.score_b} • ${new Date(m.reviewed_at || m.created_at).toLocaleString()}${reversed && m.reversal_reason ? ` • reversal: ${esc(m.reversal_reason)}` : ""}</small>
+        ${m.status === "approved" ? `<div class="match-actions"><button class="btn reverse-btn" data-admin-reverse-match="${m.id}">Reverse approved game</button></div>` : ""}
+      </article>`;
+    }).join("") : `<div class="empty">No approved match history yet.</div>`;
   }
 
   function renderAuth() {
@@ -2802,8 +3194,7 @@
     if (isCommissioner()) {
       renderClaimQueue();
       renderPending();
-      renderHistory();
-      renderAudit();
+      renderAdminDashboard();
     }
   }
 
@@ -2869,6 +3260,7 @@
     advancedStatsCache.clear();
     communityLoaded = false;
     challengesLoaded = false;
+    adminLoaded = false;
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
@@ -2897,6 +3289,7 @@
     $("syncStatus").textContent = "Live";
     $("syncStatus").classList.add("live");
     renderAll();
+    if (isCommissioner() && $("commissioner")?.classList.contains("active")) loadAdminDashboardData(true);
   }
 
   async function refreshProfile() {
@@ -3123,8 +3516,8 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v10")
-      .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
+    realtimeChannel = sb.channel("xo-league-live-v11")
+      .on("postgres_changes", { event:"*", schema:"public", table:"players" }, async () => { adminLoaded=false; await loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, async () => {
         await loadData();
         if ($("stats")?.classList.contains("active")) {
@@ -3138,8 +3531,11 @@
         if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
-      .on("postgres_changes", { event:"*", schema:"public", table:"audit_log" }, () => { if (isCommissioner()) loadData(); })
-      .on("postgres_changes", { event:"*", schema:"public", table:"seasons" }, () => loadData())
+      .on("postgres_changes", { event:"*", schema:"public", table:"audit_log" }, async () => {
+        adminLoaded=false;
+        if (isCommissioner() && $("commissioner")?.classList.contains("active")) await loadAdminDashboardData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"seasons" }, async () => { adminLoaded=false; await loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"season_player_stats" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"chat_messages" }, () => {
         communityLoaded = false;
@@ -3147,6 +3543,7 @@
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"announcements" }, () => {
         communityLoaded = false;
+        adminLoaded = false;
         if ($("community")?.classList.contains("active")) loadCommunityData(true);
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"chat_mutes" }, () => {
@@ -3155,6 +3552,7 @@
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"tournaments" }, () => {
         tournamentLoaded = false;
+        adminLoaded = false;
         advancedStatsCache.clear();
         if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
         if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
@@ -3176,6 +3574,14 @@
       .on("postgres_changes", { event:"*", schema:"public", table:"challenges" }, () => {
         challengesLoaded = false;
         if ($("challenges")?.classList.contains("active")) loadChallenges(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"match_reversals" }, async () => {
+        adminLoaded=false;
+        if (isCommissioner() && $("commissioner")?.classList.contains("active")) await loadAdminDashboardData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"profiles" }, async () => {
+        adminLoaded=false;
+        if (isCommissioner() && $("commissioner")?.classList.contains("active")) await loadAdminDashboardData(true);
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"notifications" }, payload => {
         if (!currentUser) return;
@@ -3204,6 +3610,58 @@
       if (row) markNotificationRead(row.dataset.notificationOpen, row.dataset.notificationView || "");
     });
     $("notificationToast").addEventListener("click", openNotifications);
+
+
+    $("adminRefreshBtn").addEventListener("click", () => loadAdminDashboardData(true));
+    $("adminSearch").addEventListener("input", () => {
+      renderAdminPlayerDirectory();
+      renderAdminUsers();
+    });
+    $("adminAuditSearch").addEventListener("input", renderAudit);
+    $("adminAuditFilter").addEventListener("change", renderAudit);
+
+    $("adminPlayerList").addEventListener("click", e => {
+      const rename=e.target.closest("[data-admin-rename-player]");
+      if(rename) return adminRenamePlayer(rename.dataset.adminRenamePlayer);
+      const toggle=e.target.closest("[data-admin-toggle-player]");
+      if(toggle) return adminTogglePlayer(toggle.dataset.adminTogglePlayer,toggle.dataset.nextActive==="true");
+    });
+    $("mergeKeepPlayer").addEventListener("change", renderAdminMergeSelectors);
+    $("mergeDuplicatePlayer").addEventListener("change", renderAdminMergeSelectors);
+    $("mergePlayersBtn").addEventListener("click", adminMergePlayers);
+
+    $("historyList").addEventListener("click", e => {
+      const reverse=e.target.closest("[data-admin-reverse-match]");
+      if(reverse) adminReverseMatch(reverse.dataset.adminReverseMatch);
+    });
+
+    $("adminSeasonList").addEventListener("click", e => {
+      const rename=e.target.closest("[data-admin-rename-season]");
+      if(rename) return adminRenameSeason(rename.dataset.adminRenameSeason);
+      const activate=e.target.closest("[data-admin-activate-season]");
+      if(activate) return adminActivateSeason(activate.dataset.adminActivateSeason);
+    });
+
+    $("adminTournamentList").addEventListener("click", e => {
+      const open=e.target.closest("[data-admin-open-tournament]");
+      if(open){ selectedTournamentId=open.dataset.adminOpenTournament; setView("tournaments"); return; }
+      const cancel=e.target.closest("[data-admin-cancel-tournament]");
+      if(cancel) return adminCancelTournament(cancel.dataset.adminCancelTournament);
+    });
+
+    $("adminAnnouncementList").addEventListener("click", e => {
+      const toggle=e.target.closest("[data-admin-toggle-announcement]");
+      if(toggle) return adminToggleAnnouncement(toggle.dataset.adminToggleAnnouncement,toggle.dataset.nextActive==="true");
+      const del=e.target.closest("[data-admin-delete-announcement]");
+      if(del) return adminDeleteAnnouncement(del.dataset.adminDeleteAnnouncement);
+    });
+
+    $("adminUserList").addEventListener("click", e => {
+      const role=e.target.closest("[data-admin-save-role]");
+      if(role) return adminSaveUserRole(role.dataset.adminSaveRole);
+      const link=e.target.closest("[data-admin-save-link]");
+      if(link) return adminSaveUserLink(link.dataset.adminSaveLink);
+    });
 
     $$(".nav-btn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
     $$('[data-go]').forEach(b => b.addEventListener("click", () => setView(b.dataset.go)));

@@ -1178,3 +1178,49 @@ body.notification-drawer-open{overflow:hidden}
   .notification-toast{top:126px;right:10px;width:calc(100vw - 20px)}
   .notification-drawer-foot{flex-direction:column}
 }
+
+
+/* ============================================================
+   UPGRADE 11 — COMMISSIONER DASHBOARD 2.0
+   ============================================================ */
+.admin2-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:14px}
+.admin2-hero h2{margin:4px 0 4px}.admin2-hero p{margin:0;color:var(--muted);font-size:10px;line-height:1.5;max-width:740px}
+.admin2-hero-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.admin-summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:9px;margin-bottom:14px}
+.admin-summary-grid>div{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:12px 13px}
+.admin-summary-grid span,.admin-summary-grid b{display:block}.admin-summary-grid span{font-size:7px;color:var(--muted);font-weight:950;letter-spacing:.1em}.admin-summary-grid b{font-size:24px;margin-top:3px}
+.admin-command-bar{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:end;gap:14px;margin-bottom:14px}
+.admin-command-bar h3{margin:2px 0 0}.admin-command-bar .input{min-width:0}
+.admin-review-grid{margin-bottom:14px}
+.admin-player-panel{margin-bottom:14px}
+.admin-quick-tools{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:13px}
+.admin-tool-card{border:1px solid var(--line);border-radius:12px;background:#0a0e13;padding:11px}.admin-tool-card h4{font-size:11px;margin:0 0 8px}
+.admin-player-list{display:grid;gap:6px;margin-top:13px;max-height:650px;overflow:auto;border-top:1px solid var(--line);padding-top:10px}
+.admin-player-row{display:grid;grid-template-columns:38px minmax(180px,1fr) 72px 160px 76px auto;gap:9px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:8px;background:#0b0f14}
+.admin-player-row.inactive{opacity:.72}.admin-player-row.merged{opacity:.5}
+.admin-player-avatar{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:#161c24;border:1px solid var(--line);color:var(--gold2);font-size:9px;font-weight:950}
+.admin-player-main,.admin-player-account,.admin-player-rating{min-width:0}.admin-player-main strong,.admin-player-main span,.admin-player-account b,.admin-player-account span,.admin-player-rating b,.admin-player-rating span{display:block}
+.admin-player-main strong{font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.admin-player-main span,.admin-player-account span,.admin-player-rating span{font-size:7px;color:var(--muted);margin-top:2px}
+.admin-player-rating b{font-size:13px}.admin-player-account b{font-size:8px;color:#7ce6aa}
+.admin-player-state span{display:inline-flex;border-radius:999px;padding:4px 6px;font-size:7px;font-weight:950;letter-spacing:.07em}
+.admin-player-state .active{background:rgba(57,217,138,.08);color:#71e4a4}.admin-player-state .inactive{background:rgba(255,255,255,.04);color:#8d96a4}.admin-player-state .merged{background:rgba(212,175,55,.07);color:var(--gold2)}
+.admin-player-actions{display:flex;gap:5px;justify-content:flex-end}.admin-player-actions button,.admin-manager-actions button{border:1px solid var(--line);border-radius:7px;background:#10151b;color:#cdd3dc;padding:5px 7px;font-size:8px;font-weight:850}
+.admin-two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;align-items:start}
+.admin-danger-panel{border-color:rgba(255,91,105,.16)}.merge-grid{display:grid;grid-template-columns:1fr 34px 1fr;align-items:end;gap:7px;margin:12px 0}.merge-arrow{text-align:center;padding-bottom:11px;color:var(--gold);font-weight:950;font-size:18px}
+.danger-btn{background:rgba(196,45,61,.12);color:#ff929d;border-color:rgba(255,91,105,.3)}
+.reverse-btn{background:rgba(196,45,61,.08)!important;color:#ff8e99!important;border:1px solid rgba(255,91,105,.25)!important}.reversed-match-card{opacity:.65}
+.admin-reversal-list{max-height:420px;overflow:auto}
+.admin-management-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;align-items:start}
+.admin-manager-list{display:grid;gap:7px;margin-top:12px;max-height:430px;overflow:auto}
+.admin-manager-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:9px;background:#0a0e13}
+.admin-manager-copy{min-width:0}.admin-manager-copy strong,.admin-manager-copy span,.admin-manager-copy small{display:block}.admin-manager-copy strong{font-size:10px}.admin-manager-copy span{font-size:8px;color:var(--muted);margin-top:2px}.admin-manager-copy small{font-size:7px;color:#717b89;margin-top:3px;line-height:1.45;white-space:normal}
+.admin-manager-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}.admin-manager-actions .danger-text{color:#ff8c97;border-color:rgba(255,91,105,.22)}.admin-manager-actions button:disabled{opacity:.35;cursor:not-allowed}
+.admin-current-pill{font-size:7px;color:#76e7a9;background:rgba(57,217,138,.07);border:1px solid rgba(57,217,138,.2);border-radius:999px;padding:4px 6px;font-weight:950}
+.admin-user-row{grid-template-columns:minmax(180px,.8fr) minmax(320px,1.2fr);align-items:start}.admin-user-controls{display:grid;grid-template-columns:130px auto minmax(150px,1fr) auto;gap:5px;align-items:center}.admin-user-controls select{min-width:0;font-size:8px;padding:7px}
+.audit-controls{display:grid;grid-template-columns:1fr 220px;gap:8px;margin-bottom:11px}.admin-audit-panel .audit-list{max-height:720px;overflow:auto}
+.admin-audit-row{display:block!important;padding:0!important}.admin-audit-row>summary{list-style:none;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px;cursor:pointer}.admin-audit-row>summary::-webkit-details-marker{display:none}.admin-audit-row[open]>summary{border-bottom:1px solid var(--line)}
+.audit-detail-json{padding:9px 12px 12px 53px;background:#090c10}.audit-detail-json>b{font-size:8px;color:var(--gold);letter-spacing:.07em}.audit-detail-json pre{margin:6px 0 0;white-space:pre-wrap;word-break:break-word;color:#87919f;font-size:8px;line-height:1.5}
+.tournament-status.cancelled{background:rgba(255,91,105,.06);color:#ff8e99;border:1px solid rgba(255,91,105,.2)}
+@media(max-width:1180px){.admin-summary-grid{grid-template-columns:repeat(3,1fr)}.admin-player-row{grid-template-columns:38px minmax(160px,1fr) 70px 130px auto}.admin-player-state{display:none}.admin-quick-tools{grid-template-columns:1fr}.admin-user-row{grid-template-columns:1fr}.admin-user-controls{grid-template-columns:130px auto 1fr auto}}
+@media(max-width:900px){.admin-two-col,.admin-management-grid{grid-template-columns:1fr}.admin-player-row{grid-template-columns:34px minmax(0,1fr) 65px auto}.admin-player-account{display:none}.admin-command-bar{grid-template-columns:1fr}.admin-command-bar .tag{justify-self:start}.admin2-hero{align-items:flex-start;flex-direction:column}.admin2-hero-actions{justify-content:flex-start}}
+@media(max-width:650px){.admin-summary-grid{grid-template-columns:1fr 1fr}.admin-player-row{grid-template-columns:32px minmax(0,1fr) auto}.admin-player-rating{display:none}.admin-player-actions{grid-column:2/-1;justify-content:flex-start}.merge-grid{grid-template-columns:1fr}.merge-arrow{transform:rotate(-90deg);padding:0}.audit-controls{grid-template-columns:1fr}.admin-user-controls{grid-template-columns:1fr 1fr}.admin-user-controls select:nth-of-type(2){grid-column:1/-1}}
