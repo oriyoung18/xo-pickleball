@@ -41,6 +41,17 @@
   let communityLoaded = false;
   let communityLoading = false;
 
+  // Upgrade 7 — Tournaments
+  let tournaments = [];
+  let tournamentEntries = [];
+  let tournamentMatches = [];
+  let tournamentRatingResults = [];
+  let tournamentLoaded = false;
+  let tournamentLoading = false;
+  let selectedTournamentId = null;
+  let tournamentEntrantSelection = new Set();
+  let tournamentResultMatchId = null;
+
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
@@ -73,6 +84,10 @@
     if (id === "community") {
       renderCommunity();
       loadCommunityData();
+    }
+    if (id === "tournaments") {
+      renderTournamentHub();
+      loadTournamentData();
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -463,7 +478,10 @@
       chat_user_muted:`muted ${d.player_name || d.user_name || "a player"}${d.hours === 0 ? " indefinitely" : ` for ${d.hours || "?"}h`}`,
       chat_user_unmuted:`unmuted ${d.player_name || d.user_name || "a player"}`,
       announcement_posted:`posted announcement "${d.title || "League update"}"`,
-      announcement_deleted:`deleted announcement "${d.title || "League update"}"`
+      announcement_deleted:`deleted announcement "${d.title || "League update"}"`,
+      tournament_created:`created tournament "${d.tournament_name || "Tournament"}" (${d.size || "?"} players${d.affects_ratings ? ", Elo on" : ", exhibition"})`,
+      tournament_match_recorded:`recorded ${d.player1_name || "Player"} ${d.score1 ?? "?"}-${d.score2 ?? "?"} ${d.player2_name || "Player"} in ${d.tournament_name || "a tournament"}`,
+      tournament_completed:`crowned ${d.champion_name || "a champion"} in ${d.tournament_name || "a tournament"}`
     };
     return map[a.action] || a.action.replaceAll("_"," ");
   }
@@ -471,7 +489,7 @@
   function renderAudit() {
     $("auditList").innerHTML = auditLogs.length ? auditLogs.map(a => `
       <div class="audit-row">
-        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : "XO"}</div>
+        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : a.action.startsWith("tournament_") ? "TR" : "XO"}</div>
         <div class="audit-copy"><strong>${esc(a.actor_name)}</strong><span>${esc(auditDescription(a))}</span></div>
         <time>${new Date(a.created_at).toLocaleString()}</time>
       </div>`).join("") : `<div class="empty">Audit events will appear here as the league is used.</div>`;
@@ -1341,6 +1359,373 @@
     await loadCommunityData(true);
   }
 
+
+  function tournamentById(id) {
+    return tournaments.find(t => t.id === id);
+  }
+
+  function entriesForTournament(id) {
+    return tournamentEntries.filter(e => e.tournament_id === id).sort((a,b) => a.seed-b.seed);
+  }
+
+  function matchesForTournament(id) {
+    return tournamentMatches.filter(m => m.tournament_id === id)
+      .sort((a,b) => a.round_number-b.round_number || a.match_number-b.match_number);
+  }
+
+  function tournamentSeedMap(id) {
+    return Object.fromEntries(entriesForTournament(id).map(e => [e.player_id, e.seed]));
+  }
+
+  function tournamentRoundLabel(t, round) {
+    const rounds = Math.log2(Number(t.size));
+    if (round === rounds) return "Final";
+    if (round === rounds - 1) return "Semifinals";
+    if (round === rounds - 2) return "Quarterfinals";
+    const remaining = Number(t.size) / Math.pow(2, round - 1);
+    return `Round of ${remaining}`;
+  }
+
+  function tournamentStatusText(t) {
+    return t.status === "completed" ? "Completed" : "Live";
+  }
+
+  function renderTournamentBuilder() {
+    if (!$("tournamentPlayerPicker")) return;
+    const s = activeSeason();
+    $("tournamentSeasonBadge").textContent = s?.name || "No active season";
+
+    const size = Number($("tournamentSize")?.value || 8);
+    const q = ($("tournamentPlayerSearch")?.value || "").trim().toLowerCase();
+    const roster = activeSeasonRows();
+    const visible = roster.filter(p => p.name.toLowerCase().includes(q));
+
+    // If a removed/inactive id somehow remains selected, discard it.
+    const valid = new Set(roster.map(p => p.id));
+    tournamentEntrantSelection = new Set([...tournamentEntrantSelection].filter(id => valid.has(id)));
+
+    $("tournamentSelectedCount").textContent = `${tournamentEntrantSelection.size} / ${size} selected`;
+    $("autoFillTournamentBtn").textContent = `Auto-fill Top ${size}`;
+    $("createTournamentBtn").disabled = tournamentEntrantSelection.size !== size || !s;
+
+    $("tournamentPlayerPicker").innerHTML = visible.map((p, idx) => {
+      const rank = roster.findIndex(x => x.id === p.id) + 1;
+      const checked = tournamentEntrantSelection.has(p.id);
+      return `<label class="tournament-player-pick ${checked ? "selected" : ""}">
+        <input type="checkbox" data-tournament-player="${p.id}" ${checked ? "checked" : ""} />
+        <span class="tournament-pick-seed">${p.provisional ? "PROV" : `#${rank}`}</span>
+        <span class="tournament-pick-name">${esc(p.name)}</span>
+        <b>${p.rating}</b>
+      </label>`;
+    }).join("") || `<div class="empty">No players found.</div>`;
+  }
+
+  function renderTournamentList() {
+    if (!$("tournamentList")) return;
+    const live = tournaments.filter(t => t.status === "live").length;
+    $("liveTournamentCount").textContent = `${live} live`;
+
+    $("tournamentList").innerHTML = tournaments.length ? tournaments.map(t => {
+      const champ = t.champion_player_id ? playerById(t.champion_player_id)?.name : null;
+      return `<button class="tournament-list-card ${t.id === selectedTournamentId ? "active" : ""}" data-tournament-select="${t.id}">
+        <div class="tournament-list-top">
+          <span class="tournament-status ${t.status}">${tournamentStatusText(t)}</span>
+          <small>${t.size}-player</small>
+        </div>
+        <strong>${esc(t.name)}</strong>
+        <span>${esc(seasonById(t.season_id)?.name || "Season")} • ${t.affects_ratings ? "Elo ON" : "Exhibition"}</span>
+        ${champ ? `<em>Champion: ${esc(champ)}</em>` : ""}
+      </button>`;
+    }).join("") : `<div class="empty">No tournaments yet.</div>`;
+  }
+
+  function ratingDeltaForTournamentMatch(matchId, playerId) {
+    const r = tournamentRatingResults.find(x => x.tournament_match_id === matchId && x.player_id === playerId);
+    if (!r) return null;
+    return selectedSeasonId === "all" ? Number(r.rating_delta) : Number(r.season_rating_delta);
+  }
+
+  function renderTournamentMatchCard(t, m, seedMap) {
+    const p1 = m.player1_id ? playerById(m.player1_id) : null;
+    const p2 = m.player2_id ? playerById(m.player2_id) : null;
+    const p1Winner = m.winner_player_id && m.winner_player_id === m.player1_id;
+    const p2Winner = m.winner_player_id && m.winner_player_id === m.player2_id;
+    const ready = m.status === "ready" && p1 && p2;
+    const delta1 = t.affects_ratings && m.status === "completed" ? ratingDeltaForTournamentMatch(m.id, m.player1_id) : null;
+    const delta2 = t.affects_ratings && m.status === "completed" ? ratingDeltaForTournamentMatch(m.id, m.player2_id) : null;
+
+    const playerLine = (p, winner, score, delta) => `
+      <div class="bracket-player ${winner ? "winner" : ""} ${!p ? "tbd" : ""}">
+        <span class="bracket-seed">${p ? (seedMap[p.id] || "—") : "—"}</span>
+        <strong>${p ? esc(p.name) : "TBD"}</strong>
+        ${delta !== null ? `<small class="${delta >= 0 ? "positive" : "negative"}">${delta >= 0 ? "+" : ""}${delta}</small>` : ""}
+        <b>${score ?? "—"}</b>
+      </div>`;
+
+    return `<article class="bracket-match ${m.status}">
+      <div class="bracket-match-number">Match ${m.match_number}</div>
+      ${playerLine(p1, p1Winner, m.status === "completed" ? m.score1 : null, delta1)}
+      ${playerLine(p2, p2Winner, m.status === "completed" ? m.score2 : null, delta2)}
+      <div class="bracket-match-footer">
+        ${m.status === "completed"
+          ? `<span>Final</span>`
+          : ready
+            ? `<span>Ready to play</span>${isCommissioner() ? `<button data-tournament-result="${m.id}">Enter result</button>` : ""}`
+            : `<span>Waiting for previous round</span>`}
+      </div>
+    </article>`;
+  }
+
+  function renderTournamentDetail() {
+    const root = $("tournamentDetail");
+    if (!root) return;
+    const t = tournamentById(selectedTournamentId);
+    if (!t) {
+      root.innerHTML = `<div class="empty tournament-empty"><strong>No tournament selected.</strong><span>When Ori creates a bracket, it will appear here.</span></div>`;
+      return;
+    }
+
+    const entries = entriesForTournament(t.id);
+    const rows = matchesForTournament(t.id);
+    const seedMap = tournamentSeedMap(t.id);
+    const rounds = [...new Set(rows.map(m => m.round_number))];
+    const champion = t.champion_player_id ? playerById(t.champion_player_id) : null;
+
+    root.innerHTML = `
+      <div class="tournament-detail-head">
+        <div>
+          <div class="panel-kicker">${esc(seasonById(t.season_id)?.name || "SEASON")} • ${t.size} PLAYER BRACKET</div>
+          <h2>${esc(t.name)}</h2>
+          <div class="tournament-detail-meta">
+            <span class="tournament-status ${t.status}">${tournamentStatusText(t)}</span>
+            <span>${t.affects_ratings ? "⚡ Elo enabled" : "Exhibition — no rating impact"}</span>
+            <span>Started ${new Date(t.created_at).toLocaleDateString()}</span>
+          </div>
+        </div>
+        ${champion ? `<div class="champion-chip"><span>♛</span><div><small>CHAMPION</small><strong>${esc(champion.name)}</strong></div></div>` : ""}
+      </div>
+
+      ${champion ? `<div class="champion-banner"><span>♛</span><div><small>${esc(t.name)} CHAMPION</small><strong>${esc(champion.name)}</strong></div></div>` : ""}
+
+      <div class="bracket-scroll">
+        <div class="bracket-board rounds-${rounds.length}">
+          ${rounds.map(round => `
+            <section class="bracket-round">
+              <div class="bracket-round-head">
+                <span>ROUND ${round}</span>
+                <strong>${tournamentRoundLabel(t, round)}</strong>
+              </div>
+              <div class="bracket-round-matches">
+                ${rows.filter(m => m.round_number === round).map(m => renderTournamentMatchCard(t, m, seedMap)).join("")}
+              </div>
+            </section>
+          `).join("")}
+        </div>
+      </div>
+
+      <div class="seed-list">
+        <div class="panel-kicker">ORIGINAL SEEDS</div>
+        <div class="seed-grid">
+          ${entries.map(e => `<button data-player-profile="${e.player_id}"><b>#${e.seed}</b><span>${esc(playerById(e.player_id)?.name || "Unknown")}</span></button>`).join("")}
+        </div>
+      </div>`;
+  }
+
+  function renderChampionHistory() {
+    const root = $("championHistory");
+    if (!root) return;
+    const completed = tournaments.filter(t => t.status === "completed" && t.champion_player_id)
+      .sort((a,b) => new Date(b.completed_at || b.created_at) - new Date(a.completed_at || a.created_at));
+
+    root.innerHTML = completed.length ? completed.map(t => {
+      const champ = playerById(t.champion_player_id);
+      return `<article class="champion-history-card" data-tournament-select="${t.id}">
+        <div class="champion-history-crown">♛</div>
+        <div>
+          <span>${esc(seasonById(t.season_id)?.name || "Season")} • ${t.size} players</span>
+          <strong>${esc(t.name)}</strong>
+          <b>${esc(champ?.name || "Champion")}</b>
+        </div>
+        <small>${t.completed_at ? new Date(t.completed_at).toLocaleDateString() : ""}<br>${t.affects_ratings ? "Elo event" : "Exhibition"}</small>
+      </article>`;
+    }).join("") : `<div class="empty">No champions yet.</div>`;
+  }
+
+  function renderTournamentHub() {
+    if (!$("tournaments")) return;
+    renderTournamentBuilder();
+    renderTournamentList();
+    renderTournamentDetail();
+    renderChampionHistory();
+  }
+
+  async function loadTournamentData(force=false) {
+    if (!$("tournaments") || !configured) {
+      renderTournamentHub();
+      return;
+    }
+    if (tournamentLoading) return;
+    if (tournamentLoaded && !force) {
+      renderTournamentHub();
+      return;
+    }
+
+    tournamentLoading = true;
+    try {
+      const [tRes, eRes, mRes, rRes] = await Promise.all([
+        sb.from("tournaments").select("*").order("created_at", { ascending:false }).limit(50),
+        sb.from("tournament_entries").select("*").order("seed", { ascending:true }),
+        sb.from("tournament_matches").select("*").order("round_number", { ascending:true }),
+        sb.from("tournament_rating_results").select("*").order("created_at", { ascending:true })
+      ]);
+
+      if (tRes.error) throw tRes.error;
+      if (eRes.error) throw eRes.error;
+      if (mRes.error) throw mRes.error;
+      if (rRes.error) throw rRes.error;
+
+      tournaments = tRes.data || [];
+      tournamentEntries = eRes.data || [];
+      tournamentMatches = mRes.data || [];
+      tournamentRatingResults = rRes.data || [];
+
+      if (!selectedTournamentId || !tournamentById(selectedTournamentId)) {
+        selectedTournamentId = tournaments.find(t => t.status === "live")?.id || tournaments[0]?.id || null;
+      }
+
+      tournamentLoaded = true;
+      renderTournamentHub();
+    } catch (err) {
+      console.error(err);
+      $("tournamentDetail").innerHTML = `<div class="empty tournament-empty"><strong>Could not load tournaments.</strong><span>${esc(err.message || err)}</span></div>`;
+    } finally {
+      tournamentLoading = false;
+    }
+  }
+
+  function autoFillTournament() {
+    const size = Number($("tournamentSize").value || 8);
+    tournamentEntrantSelection = new Set(activeSeasonRows().slice(0,size).map(p => p.id));
+    renderTournamentBuilder();
+  }
+
+  function clearTournamentSelection() {
+    tournamentEntrantSelection.clear();
+    renderTournamentBuilder();
+  }
+
+  function toggleTournamentEntrant(playerId, checked) {
+    const size = Number($("tournamentSize").value || 8);
+    if (checked) {
+      if (tournamentEntrantSelection.size >= size) {
+        const box = document.querySelector(`[data-tournament-player="${playerId}"]`);
+        if (box) box.checked = false;
+        return setMessage($("tournamentCreateMessage"), `This bracket only has ${size} spots.`, "error");
+      }
+      tournamentEntrantSelection.add(playerId);
+    } else {
+      tournamentEntrantSelection.delete(playerId);
+    }
+    setMessage($("tournamentCreateMessage"), "");
+    renderTournamentBuilder();
+  }
+
+  async function createTournament() {
+    if (!isCommissioner()) return;
+    const name = $("tournamentName").value.trim();
+    const size = Number($("tournamentSize").value);
+    const affects = $("tournamentAffectsElo").checked;
+    const ids = [...tournamentEntrantSelection];
+
+    if (name.length < 3) return setMessage($("tournamentCreateMessage"), "Enter a tournament name.", "error");
+    if (ids.length !== size) return setMessage($("tournamentCreateMessage"), `Select exactly ${size} players.`, "error");
+
+    const warning = affects
+      ? `Create "${name}" with ${size} players?\n\nSeeding is automatic from the active season rankings.\n\nTOURNAMENT ELO IS ON: each completed bracket match will change player ratings and uncertainty. It will NOT change normal doubles W-L records or provisional match counts.`
+      : `Create "${name}" with ${size} players?\n\nSeeding is automatic from the active season rankings.\n\nThis is an exhibition bracket: tournament results will NOT change ratings.`;
+
+    if (!confirm(warning)) return;
+
+    $("createTournamentBtn").disabled = true;
+    const { data, error } = await sb.rpc("commissioner_create_tournament", {
+      p_name:name,
+      p_size:size,
+      p_affects_ratings:affects,
+      p_player_ids:ids
+    });
+    $("createTournamentBtn").disabled = false;
+
+    if (error) return setMessage($("tournamentCreateMessage"), error.message, "error");
+
+    $("tournamentName").value = "";
+    tournamentEntrantSelection.clear();
+    selectedTournamentId = data;
+    tournamentLoaded = false;
+    setMessage($("tournamentCreateMessage"), "Tournament created and seeded.", "success");
+    await loadTournamentData(true);
+  }
+
+  function openTournamentResult(matchId) {
+    const m = tournamentMatches.find(x => x.id === matchId);
+    const t = m ? tournamentById(m.tournament_id) : null;
+    if (!m || !t || m.status !== "ready") return;
+
+    tournamentResultMatchId = matchId;
+    const p1 = playerById(m.player1_id);
+    const p2 = playerById(m.player2_id);
+
+    $("tournamentResultTitle").textContent = `${t.name} • ${tournamentRoundLabel(t,m.round_number)}`;
+    $("resultPlayer1Label").textContent = p1?.name || "Player 1";
+    $("resultPlayer2Label").textContent = p2?.name || "Player 2";
+    $("tournamentResultMatchup").innerHTML = `<strong>${esc(p1?.name || "TBD")}</strong><span>vs</span><strong>${esc(p2?.name || "TBD")}</strong>`;
+    $("tournamentScore1").value = 11;
+    $("tournamentScore2").value = 0;
+    $("tournamentEloWarning").classList.toggle("hidden", !t.affects_ratings);
+    $("tournamentEloWarning").textContent = t.affects_ratings
+      ? "Elo is ON for this event. Saving this result immediately changes both players’ career and season ratings."
+      : "";
+    setMessage($("tournamentResultMessage"), "");
+    $("tournamentResultModal").classList.remove("hidden");
+  }
+
+  function closeTournamentResult() {
+    tournamentResultMatchId = null;
+    $("tournamentResultModal").classList.add("hidden");
+    setMessage($("tournamentResultMessage"), "");
+  }
+
+  async function saveTournamentResult() {
+    if (!isCommissioner() || !tournamentResultMatchId) return;
+    const score1 = Number($("tournamentScore1").value);
+    const score2 = Number($("tournamentScore2").value);
+
+    if (!Number.isInteger(score1) || !Number.isInteger(score2) || score1 < 0 || score2 < 0 || score1 === score2 || score1 > 99 || score2 > 99) {
+      return setMessage($("tournamentResultMessage"), "Enter a valid non-tied score from 0-99.", "error");
+    }
+
+    const m = tournamentMatches.find(x => x.id === tournamentResultMatchId);
+    const p1 = playerById(m?.player1_id);
+    const p2 = playerById(m?.player2_id);
+    const winner = score1 > score2 ? p1 : p2;
+
+    if (!confirm(`Save ${p1?.name || "Player 1"} ${score1} - ${score2} ${p2?.name || "Player 2"}?\n\nWinner: ${winner?.name || "Unknown"}\nThis cannot be edited from the tournament screen after saving.`)) return;
+
+    $("saveTournamentResultBtn").disabled = true;
+    const { error } = await sb.rpc("commissioner_record_tournament_result", {
+      p_match_id:tournamentResultMatchId,
+      p_score1:score1,
+      p_score2:score2
+    });
+    $("saveTournamentResultBtn").disabled = false;
+
+    if (error) return setMessage($("tournamentResultMessage"), error.message, "error");
+
+    closeTournamentResult();
+    tournamentLoaded = false;
+    playerProfileCache.clear();
+    await Promise.all([loadData(), loadTournamentData(true)]);
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -1385,6 +1770,7 @@
     renderLeaderboard();
     renderStatsHub();
     renderCommunity();
+    renderTournamentHub();
     renderSelects();
     renderAuth();
     renderMyMatches();
@@ -1686,7 +2072,7 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v6")
+    realtimeChannel = sb.channel("xo-league-live-v7")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
@@ -1704,6 +2090,22 @@
       .on("postgres_changes", { event:"*", schema:"public", table:"chat_mutes" }, () => {
         communityLoaded = false;
         if ($("community")?.classList.contains("active")) loadCommunityData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"tournaments" }, () => {
+        tournamentLoaded = false;
+        if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"tournament_matches" }, () => {
+        tournamentLoaded = false;
+        if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"tournament_entries" }, () => {
+        tournamentLoaded = false;
+        if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"tournament_rating_results" }, () => {
+        tournamentLoaded = false;
+        if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
       })
       .subscribe();
   }
@@ -1753,6 +2155,48 @@
         window.scrollTo({top:$("stats").offsetTop,behavior:"smooth"});
       }
     });
+
+
+    $("tournamentSize").addEventListener("change", () => {
+      const size = Number($("tournamentSize").value);
+      const rankedIds = activeSeasonRows().map(p => p.id);
+      tournamentEntrantSelection = new Set(rankedIds.filter(id => tournamentEntrantSelection.has(id)).slice(0,size));
+      renderTournamentBuilder();
+    });
+    $("tournamentPlayerSearch").addEventListener("input", renderTournamentBuilder);
+    $("autoFillTournamentBtn").addEventListener("click", autoFillTournament);
+    $("clearTournamentBtn").addEventListener("click", clearTournamentSelection);
+    $("createTournamentBtn").addEventListener("click", createTournament);
+    $("tournamentPlayerPicker").addEventListener("change", e => {
+      const box = e.target.closest("[data-tournament-player]");
+      if (box) toggleTournamentEntrant(box.dataset.tournamentPlayer, box.checked);
+    });
+    $("tournamentList").addEventListener("click", e => {
+      const pick = e.target.closest("[data-tournament-select]");
+      if (pick) {
+        selectedTournamentId = pick.dataset.tournamentSelect;
+        renderTournamentHub();
+      }
+    });
+    $("championHistory").addEventListener("click", e => {
+      const pick = e.target.closest("[data-tournament-select]");
+      if (pick) {
+        selectedTournamentId = pick.dataset.tournamentSelect;
+        renderTournamentHub();
+        $("tournamentDetail").scrollIntoView({ behavior:"smooth", block:"start" });
+      }
+    });
+    $("tournamentDetail").addEventListener("click", e => {
+      const result = e.target.closest("[data-tournament-result]");
+      if (result) return openTournamentResult(result.dataset.tournamentResult);
+      const profile = e.target.closest("[data-player-profile]");
+      if (profile) return openPlayerProfile(profile.dataset.playerProfile);
+    });
+    $("closeTournamentResult").addEventListener("click", closeTournamentResult);
+    $("tournamentResultModal").addEventListener("click", e => {
+      if (e.target === $("tournamentResultModal")) closeTournamentResult();
+    });
+    $("saveTournamentResultBtn").addEventListener("click", saveTournamentResult);
 
     $$(".chat-channel").forEach(btn => btn.addEventListener("click", async () => {
       activeChatChannel = btn.dataset.chatChannel;

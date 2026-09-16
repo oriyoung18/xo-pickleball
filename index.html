@@ -26,6 +26,7 @@
     <nav class="nav-tabs" aria-label="Main navigation">
       <button class="nav-btn active" data-view="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-view="stats">Stats</button>
+      <button class="nav-btn" data-view="tournaments">Tournaments</button>
       <button class="nav-btn member-only hidden" data-view="community">Community</button>
       <button class="nav-btn" data-view="submit">Submit Match</button>
       <button class="nav-btn member-only hidden" data-view="my-matches">My Matches</button>
@@ -199,6 +200,100 @@
       </div>
     </section>
 
+
+
+    <section id="tournaments" class="view">
+      <div class="tournament-hero panel">
+        <div>
+          <div class="panel-kicker">XO TOURNAMENTS • SCARLET & GOLD</div>
+          <h2>Bracket Central</h2>
+          <p>Live seeded brackets, tournament results, champions, and optional Elo impact — all tied into the league rankings.</p>
+        </div>
+        <div class="trophy-mark">♛</div>
+      </div>
+
+      <section id="tournamentBuilder" class="panel commissioner-only hidden tournament-builder">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">COMMISSIONER</div>
+            <h3>Create Tournament</h3>
+          </div>
+          <span id="tournamentSeasonBadge" class="tag gold">Fall 2026</span>
+        </div>
+
+        <div class="tournament-create-grid">
+          <label>Tournament name
+            <input id="tournamentName" class="input" type="text" maxlength="80" placeholder="Chi Phi Fall Classic" />
+          </label>
+          <label>Bracket size
+            <select id="tournamentSize">
+              <option value="8">8 players</option>
+              <option value="16">16 players</option>
+              <option value="32">32 players</option>
+            </select>
+          </label>
+          <label class="elo-toggle-label">Ranking impact
+            <span class="toggle-row">
+              <input id="tournamentAffectsElo" type="checkbox" />
+              <span><b>Affects Elo</b><small>Rating only — does not change doubles W-L or provisional count.</small></span>
+            </span>
+          </label>
+        </div>
+
+        <div class="tournament-picker-head">
+          <div>
+            <h4>Select entrants</h4>
+            <span id="tournamentSelectedCount">0 / 8 selected</span>
+          </div>
+          <div class="picker-actions">
+            <input id="tournamentPlayerSearch" class="input" type="search" placeholder="Search players…" />
+            <button id="autoFillTournamentBtn" class="btn outline">Auto-fill Top 8</button>
+            <button id="clearTournamentBtn" class="btn outline">Clear</button>
+          </div>
+        </div>
+
+        <div id="tournamentPlayerPicker" class="tournament-player-picker"></div>
+
+        <div class="tournament-create-footer">
+          <div id="tournamentCreateMessage" class="form-message"></div>
+          <button id="createTournamentBtn" class="btn gold-btn" disabled>Create seeded bracket</button>
+        </div>
+      </section>
+
+      <div class="tournament-layout">
+        <aside class="panel tournament-browser">
+          <div class="panel-head">
+            <div><div class="panel-kicker">EVENTS</div><h3>Tournaments</h3></div>
+            <span id="liveTournamentCount" class="tag red">0 live</span>
+          </div>
+          <div id="tournamentList" class="tournament-list">
+            <div class="empty">No tournaments yet.</div>
+          </div>
+        </aside>
+
+        <section class="panel tournament-main">
+          <div id="tournamentDetail">
+            <div class="empty tournament-empty">
+              <strong>No tournament selected.</strong>
+              <span>When Ori creates a bracket, it will appear here.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel champion-history-panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">HALL OF CHAMPIONS</div>
+            <h3>Champion History</h3>
+          </div>
+          <span class="tag gold">XO Titles</span>
+        </div>
+        <div id="championHistory" class="champion-history">
+          <div class="empty">No champions yet.</div>
+        </div>
+      </section>
+    </section>
 
     <section id="community" class="view">
       <div class="community-hero panel">
@@ -532,6 +627,28 @@
     <div class="profile-modal-card">
       <button id="closePlayerProfile" class="profile-close" aria-label="Close player profile">×</button>
       <div id="playerProfileContent"></div>
+    </div>
+  </div>
+
+
+  <div id="tournamentResultModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="tournamentResultTitle">
+    <div class="modal-card tournament-result-card">
+      <button id="closeTournamentResult" class="modal-close" aria-label="Close">×</button>
+      <div class="panel-kicker">TOURNAMENT RESULT</div>
+      <h3 id="tournamentResultTitle">Enter bracket result</h3>
+      <div id="tournamentResultMatchup" class="result-matchup"></div>
+      <div class="result-score-grid">
+        <label><span id="resultPlayer1Label">Player 1</span>
+          <input id="tournamentScore1" class="input" type="number" min="0" max="99" value="11" />
+        </label>
+        <div class="result-score-separator">—</div>
+        <label><span id="resultPlayer2Label">Player 2</span>
+          <input id="tournamentScore2" class="input" type="number" min="0" max="99" value="0" />
+        </label>
+      </div>
+      <div id="tournamentEloWarning" class="callout hidden"></div>
+      <button id="saveTournamentResultBtn" class="btn primary wide">Save result & advance winner</button>
+      <div id="tournamentResultMessage" class="form-message"></div>
     </div>
   </div>
 
