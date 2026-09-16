@@ -27,6 +27,7 @@
       <button class="nav-btn active" data-view="leaderboard">Leaderboard</button>
       <button class="nav-btn" data-view="stats">Stats</button>
       <button class="nav-btn" data-view="tournaments">Tournaments</button>
+      <button class="nav-btn member-only hidden" data-view="challenges">Challenges</button>
       <button class="nav-btn member-only hidden" data-view="community">Community</button>
       <button class="nav-btn" data-view="submit">Submit Match</button>
       <button class="nav-btn member-only hidden" data-view="my-matches">My Matches</button>
@@ -396,6 +397,127 @@
           <div class="empty">No champions yet.</div>
         </div>
       </section>
+    </section>
+
+
+    <section id="challenges" class="view">
+      <div class="challenge-hero panel">
+        <div>
+          <div class="panel-kicker">XO CHALLENGES • VERIFIED PLAYERS</div>
+          <h2>Challenge Board</h2>
+          <p>Set up singles or doubles, propose a time and court, accept or decline requests, and keep your upcoming games organized.</p>
+        </div>
+        <div class="challenge-mark">VS</div>
+      </div>
+
+      <div id="challengeAccessMessage" class="callout hidden"></div>
+
+      <section id="challengeComposer" class="panel challenge-composer">
+        <div class="panel-head">
+          <div>
+            <div class="panel-kicker">NEW MATCHUP</div>
+            <h3>Send a Challenge</h3>
+          </div>
+          <span id="challengeIdentityBadge" class="tag gold">Verified identity required</span>
+        </div>
+
+        <div class="challenge-type-tabs">
+          <button class="challenge-type active" data-challenge-type="doubles">2v2 Doubles</button>
+          <button class="challenge-type" data-challenge-type="singles">1v1 Singles</button>
+        </div>
+
+        <div class="challenge-team-grid">
+          <section class="challenge-team-card">
+            <div class="challenge-team-title"><span>YOUR SIDE</span><b>Team A</b></div>
+            <div id="challengeMeCard" class="challenge-locked-player">Sign in to continue</div>
+            <label id="challengePartnerField">Partner
+              <select id="challengePartner"></select>
+            </label>
+          </section>
+
+          <div class="challenge-vs-badge">VS</div>
+
+          <section class="challenge-team-card opponent-card">
+            <div class="challenge-team-title"><span>CHALLENGE</span><b>Team B</b></div>
+            <label>Opponent
+              <select id="challengeOpponent1"></select>
+            </label>
+            <label id="challengeOpponent2Field">Opponent 2
+              <select id="challengeOpponent2"></select>
+            </label>
+          </section>
+        </div>
+
+        <div class="challenge-schedule-grid">
+          <label>Date & time
+            <input id="challengeDateTime" class="input" type="datetime-local" />
+          </label>
+          <label>Court / location
+            <input id="challengeLocation" class="input" type="text" maxlength="120" placeholder="Chi Phi house courts" />
+          </label>
+        </div>
+
+        <label>Note <span class="optional-label">optional</span>
+          <textarea id="challengeNote" class="community-textarea challenge-note" maxlength="500" placeholder="First to 11, bring balls, need to be done by 9, etc."></textarea>
+        </label>
+
+        <div class="challenge-compose-footer">
+          <span id="challengeNoteCount">0 / 500</span>
+          <button id="sendChallengeBtn" class="btn primary">Send challenge</button>
+        </div>
+        <div id="challengeCreateMessage" class="form-message"></div>
+      </section>
+
+      <div class="challenge-stat-strip">
+        <div><span>INCOMING</span><b id="incomingChallengeCount">0</b></div>
+        <div><span>UPCOMING</span><b id="upcomingChallengeCount">0</b></div>
+        <div><span>SENT</span><b id="sentChallengeCount">0</b></div>
+        <div><span>COMPLETED</span><b id="completedChallengeCount">0</b></div>
+      </div>
+
+      <div class="challenge-dashboard-grid">
+        <section class="panel challenge-list-panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">ACTION REQUIRED</div><h3>Incoming Challenges</h3></div>
+            <span id="incomingChallengeBadge" class="tag red">0 waiting</span>
+          </div>
+          <div id="incomingChallengeList" class="challenge-list">
+            <div class="empty">No incoming challenges.</div>
+          </div>
+        </section>
+
+        <section class="panel challenge-list-panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">SCHEDULE</div><h3>Upcoming Games</h3></div>
+            <span id="upcomingChallengeBadge" class="tag gold">0 scheduled</span>
+          </div>
+          <div id="upcomingChallengeList" class="challenge-list">
+            <div class="empty">No scheduled games yet.</div>
+          </div>
+        </section>
+      </div>
+
+      <div class="challenge-dashboard-grid">
+        <section class="panel challenge-list-panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">YOUR REQUESTS</div><h3>Sent & Active</h3></div>
+            <span id="sentChallengeBadge" class="tag gold">0 active</span>
+          </div>
+          <div id="sentChallengeList" class="challenge-list">
+            <div class="empty">You haven't sent any challenges.</div>
+          </div>
+        </section>
+
+        <section class="panel challenge-list-panel">
+          <div class="panel-head">
+            <div><div class="panel-kicker">ARCHIVE</div><h3>Challenge History</h3></div>
+            <span class="tag">Completed / cancelled</span>
+          </div>
+          <div id="challengeHistoryList" class="challenge-list">
+            <div class="empty">No challenge history yet.</div>
+          </div>
+        </section>
+      </div>
     </section>
 
     <section id="community" class="view">

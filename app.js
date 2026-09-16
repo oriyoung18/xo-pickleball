@@ -54,6 +54,12 @@
   let tournamentEntrantSelection = new Set();
   let tournamentResultMatchId = null;
 
+  // Upgrade 9 — Challenges + Scheduling
+  let challenges = [];
+  let challengesLoaded = false;
+  let challengesLoading = false;
+  let challengeType = "doubles";
+
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
@@ -91,6 +97,10 @@
     if (id === "tournaments") {
       renderTournamentHub();
       loadTournamentData();
+    }
+    if (id === "challenges") {
+      renderChallenges();
+      loadChallenges();
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -484,7 +494,12 @@
       announcement_deleted:`deleted announcement "${d.title || "League update"}"`,
       tournament_created:`created tournament "${d.tournament_name || "Tournament"}" (${d.size || "?"} players${d.affects_ratings ? ", Elo on" : ", exhibition"})`,
       tournament_match_recorded:`recorded ${d.player1_name || "Player"} ${d.score1 ?? "?"}-${d.score2 ?? "?"} ${d.player2_name || "Player"} in ${d.tournament_name || "a tournament"}`,
-      tournament_completed:`crowned ${d.champion_name || "a champion"} in ${d.tournament_name || "a tournament"}`
+      tournament_completed:`crowned ${d.champion_name || "a champion"} in ${d.tournament_name || "a tournament"}`,
+      challenge_created:`challenged ${d.team_b || "another team"} for ${d.proposed_at ? new Date(d.proposed_at).toLocaleString() : "a future game"}`,
+      challenge_accepted:`accepted ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
+      challenge_declined:`declined ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
+      challenge_cancelled:`cancelled ${d.team_a || "a team"} vs ${d.team_b || "another team"}`,
+      challenge_completed:`marked ${d.team_a || "a team"} vs ${d.team_b || "another team"} as played`
     };
     return map[a.action] || a.action.replaceAll("_"," ");
   }
@@ -492,7 +507,7 @@
   function renderAudit() {
     $("auditList").innerHTML = auditLogs.length ? auditLogs.map(a => `
       <div class="audit-row">
-        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : a.action.startsWith("tournament_") ? "TR" : "XO"}</div>
+        <div class="audit-icon">${a.action.startsWith("match_") ? "PB" : a.action.startsWith("identity_") ? "ID" : a.action.startsWith("chat_") ? "CH" : a.action.startsWith("announcement_") ? "AN" : a.action.startsWith("tournament_") ? "TR" : a.action.startsWith("challenge_") ? "VS" : "XO"}</div>
         <div class="audit-copy"><strong>${esc(a.actor_name)}</strong><span>${esc(auditDescription(a))}</span></div>
         <time>${new Date(a.created_at).toLocaleString()}</time>
       </div>`).join("") : `<div class="empty">Audit events will appear here as the league is used.</div>`;
@@ -2214,6 +2229,356 @@
     await Promise.all([loadData(), loadTournamentData(true)]);
   }
 
+
+  function challengePlayerName(id) {
+    return id ? (playerById(id)?.name || "Unknown player") : "";
+  }
+
+  function currentChallengePlayerId() {
+    return linkedPlayer()?.id || null;
+  }
+
+  function isChallengeParticipant(c, playerId=currentChallengePlayerId()) {
+    if (!playerId) return false;
+    return [c.team_a1,c.team_a2,c.team_b1,c.team_b2].filter(Boolean).includes(playerId);
+  }
+
+  function isChallengeTarget(c, playerId=currentChallengePlayerId()) {
+    if (!playerId) return false;
+    return [c.team_b1,c.team_b2].filter(Boolean).includes(playerId);
+  }
+
+  function challengeTeamName(c, side) {
+    const ids = side === "a"
+      ? [c.team_a1,c.team_a2].filter(Boolean)
+      : [c.team_b1,c.team_b2].filter(Boolean);
+    return ids.map(challengePlayerName).join(" + ");
+  }
+
+  function challengeDateParts(ts) {
+    const d = new Date(ts);
+    return {
+      month:d.toLocaleDateString([], {month:"short"}).toUpperCase(),
+      day:d.toLocaleDateString([], {day:"numeric"}),
+      weekday:d.toLocaleDateString([], {weekday:"short"}),
+      time:d.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}),
+      full:d.toLocaleString([], {weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})
+    };
+  }
+
+  function challengeStatusLabel(status) {
+    return ({
+      pending:"Pending",
+      scheduled:"Scheduled",
+      declined:"Declined",
+      cancelled:"Cancelled",
+      completed:"Completed"
+    })[status] || status;
+  }
+
+  function challengeStatusClass(status) {
+    return `challenge-status ${status}`;
+  }
+
+  function defaultChallengeDateTime() {
+    const el = $("challengeDateTime");
+    if (!el || el.value) return;
+    const d = new Date();
+    d.setDate(d.getDate()+1);
+    d.setHours(19,0,0,0);
+    const local = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    el.value = local;
+  }
+
+  function challengeRosterOptions(selected="", excludeIds=[]) {
+    const exclude = new Set(excludeIds.filter(Boolean));
+    return `<option value="">Choose player</option>` + activeSeasonRows()
+      .filter(p => !exclude.has(p.id))
+      .map(p => `<option value="${p.id}" ${p.id===selected ? "selected" : ""}>${esc(p.name)} • ${p.rating}${p.provisional ? " • PROV" : ""}</option>`)
+      .join("");
+  }
+
+  function renderChallengeComposer() {
+    if (!$("challengeComposer")) return;
+
+    const me = linkedPlayer();
+    const verified = !!currentUser && !!me;
+    const isDoubles = challengeType === "doubles";
+
+    $$(".challenge-type").forEach(btn => btn.classList.toggle("active", btn.dataset.challengeType === challengeType));
+    $("challengePartnerField").classList.toggle("hidden", !isDoubles);
+    $("challengeOpponent2Field").classList.toggle("hidden", !isDoubles);
+
+    $("challengeMeCard").innerHTML = me
+      ? `<span>${esc(initials(me.name))}</span><div><small>VERIFIED PLAYER</small><strong>${esc(me.name)}</strong></div><b>${me.rating}</b>`
+      : `<div><small>VERIFIED PLAYER REQUIRED</small><strong>${currentUser ? "Claim your roster identity first" : "Sign in to send challenges"}</strong></div>`;
+
+    $("challengeIdentityBadge").textContent = me ? `${me.name} • VERIFIED` : "Verified identity required";
+
+    const partnerValue = $("challengePartner")?.value || "";
+    const opp1Value = $("challengeOpponent1")?.value || "";
+    const opp2Value = $("challengeOpponent2")?.value || "";
+
+    $("challengePartner").innerHTML = challengeRosterOptions(partnerValue, [me?.id,opp1Value,opp2Value]);
+    $("challengeOpponent1").innerHTML = challengeRosterOptions(opp1Value, [me?.id,partnerValue,opp2Value]);
+    $("challengeOpponent2").innerHTML = challengeRosterOptions(opp2Value, [me?.id,partnerValue,opp1Value]);
+
+    defaultChallengeDateTime();
+
+    const canSend = configured && verified;
+    $("sendChallengeBtn").disabled = !canSend;
+    $("sendChallengeBtn").style.opacity = canSend ? "1" : ".5";
+
+    const access = $("challengeAccessMessage");
+    let msg = "";
+    if (!currentUser) msg = "Sign in to use challenges and scheduling.";
+    else if (!me) msg = "Your roster identity must be approved before you can send, accept, or manage challenges.";
+    access.textContent = msg;
+    access.classList.toggle("hidden", !msg);
+  }
+
+  function challengeActions(c, context="") {
+    const me = currentChallengePlayerId();
+    const commissioner = isCommissioner();
+    const buttons = [];
+
+    if (c.status === "pending" && (isChallengeTarget(c,me) || commissioner)) {
+      buttons.push(`<button class="challenge-action accept" data-challenge-accept="${c.id}">Accept${commissioner && !isChallengeTarget(c,me) ? "" : " for team"}</button>`);
+      buttons.push(`<button class="challenge-action decline" data-challenge-decline="${c.id}">Decline</button>`);
+    }
+
+    if ((c.status === "pending" || c.status === "scheduled") && (isChallengeParticipant(c,me) || commissioner)) {
+      buttons.push(`<button class="challenge-action cancel" data-challenge-cancel="${c.id}">Cancel</button>`);
+    }
+
+    if (c.status === "scheduled" && (isChallengeParticipant(c,me) || commissioner)) {
+      buttons.push(`<button class="challenge-action complete" data-challenge-complete="${c.id}">Mark played</button>`);
+    }
+
+    return buttons.length ? `<div class="challenge-actions">${buttons.join("")}</div>` : "";
+  }
+
+  function challengeCard(c, context="") {
+    const date = challengeDateParts(c.proposed_at);
+    const teamA = challengeTeamName(c,"a");
+    const teamB = challengeTeamName(c,"b");
+    const past = new Date(c.proposed_at).getTime() < Date.now();
+    return `<article class="challenge-card ${c.status} ${past && c.status==="scheduled" ? "past-due" : ""}">
+      <div class="challenge-date-tile">
+        <span>${date.month}</span>
+        <b>${date.day}</b>
+        <small>${date.time}</small>
+      </div>
+      <div class="challenge-card-main">
+        <div class="challenge-card-top">
+          <span class="${challengeStatusClass(c.status)}">${challengeStatusLabel(c.status)}</span>
+          <small>${c.challenge_type === "doubles" ? "2v2 DOUBLES" : "1v1 SINGLES"}</small>
+        </div>
+        <div class="challenge-matchup">
+          <strong>${esc(teamA)}</strong>
+          <span>vs</span>
+          <strong>${esc(teamB)}</strong>
+        </div>
+        <div class="challenge-details">
+          <span>◷ ${esc(date.full)}</span>
+          ${c.location ? `<span>⌖ ${esc(c.location)}</span>` : ""}
+        </div>
+        ${c.note ? `<p>${esc(c.note)}</p>` : ""}
+        ${past && c.status==="scheduled" ? `<div class="played-reminder">Scheduled time has passed — mark it played or cancel it. Rankings only change after a score is submitted and approved.</div>` : ""}
+        ${challengeActions(c,context)}
+      </div>
+    </article>`;
+  }
+
+  function renderChallenges() {
+    if (!$("challenges")) return;
+    renderChallengeComposer();
+
+    const me = currentChallengePlayerId();
+    if (!me) {
+      ["incomingChallengeList","upcomingChallengeList","sentChallengeList","challengeHistoryList"].forEach(id => {
+        if ($(id)) $(id).innerHTML = `<div class="empty">Verified player identity required.</div>`;
+      });
+      ["incomingChallengeCount","upcomingChallengeCount","sentChallengeCount","completedChallengeCount"].forEach(id => {
+        if ($(id)) $(id).textContent = "0";
+      });
+      return;
+    }
+
+    const incoming = challenges
+      .filter(c => c.status==="pending" && isChallengeTarget(c,me))
+      .sort((a,b) => new Date(a.proposed_at)-new Date(b.proposed_at));
+
+    const upcoming = challenges
+      .filter(c => c.status==="scheduled")
+      .sort((a,b) => new Date(a.proposed_at)-new Date(b.proposed_at));
+
+    const sent = challenges
+      .filter(c => c.team_a1===me && ["pending","scheduled"].includes(c.status))
+      .sort((a,b) => new Date(a.proposed_at)-new Date(b.proposed_at));
+
+    const history = challenges
+      .filter(c => ["completed","cancelled","declined"].includes(c.status))
+      .sort((a,b) => new Date(b.updated_at || b.created_at)-new Date(a.updated_at || a.created_at));
+
+    $("incomingChallengeCount").textContent = incoming.length;
+    $("upcomingChallengeCount").textContent = upcoming.length;
+    $("sentChallengeCount").textContent = sent.length;
+    $("completedChallengeCount").textContent = challenges.filter(c => c.status==="completed").length;
+    $("incomingChallengeBadge").textContent = `${incoming.length} waiting`;
+    $("upcomingChallengeBadge").textContent = `${upcoming.length} scheduled`;
+    $("sentChallengeBadge").textContent = `${sent.length} active`;
+
+    $("incomingChallengeList").innerHTML = incoming.length
+      ? incoming.map(c => challengeCard(c,"incoming")).join("")
+      : `<div class="empty">No incoming challenges.</div>`;
+
+    $("upcomingChallengeList").innerHTML = upcoming.length
+      ? upcoming.map(c => challengeCard(c,"upcoming")).join("")
+      : `<div class="empty">No scheduled games yet.</div>`;
+
+    $("sentChallengeList").innerHTML = sent.length
+      ? sent.map(c => challengeCard(c,"sent")).join("")
+      : `<div class="empty">You haven't sent any active challenges.</div>`;
+
+    $("challengeHistoryList").innerHTML = history.length
+      ? history.slice(0,40).map(c => challengeCard(c,"history")).join("")
+      : `<div class="empty">No challenge history yet.</div>`;
+  }
+
+  async function loadChallenges(force=false) {
+    if (!$("challenges") || !configured) {
+      renderChallenges();
+      return;
+    }
+    if (!currentUser || !linkedPlayer()) {
+      challenges = [];
+      challengesLoaded = true;
+      renderChallenges();
+      return;
+    }
+    if (challengesLoading) return;
+    if (challengesLoaded && !force) {
+      renderChallenges();
+      return;
+    }
+
+    challengesLoading = true;
+    try {
+      const { data, error } = await sb.from("challenges")
+        .select("*")
+        .order("created_at", { ascending:false })
+        .limit(300);
+      if (error) throw error;
+      challenges = data || [];
+      challengesLoaded = true;
+      renderChallenges();
+    } catch (err) {
+      console.error(err);
+      setMessage($("challengeCreateMessage"), `Challenge load error: ${err.message || err}`, "error");
+    } finally {
+      challengesLoading = false;
+    }
+  }
+
+  async function sendChallenge() {
+    if (!currentUser) return openAuth("signin");
+    const me = linkedPlayer();
+    if (!me) return setMessage($("challengeCreateMessage"), "Your player identity must be approved first.", "error");
+
+    const isDoubles = challengeType === "doubles";
+    const partner = isDoubles ? $("challengePartner").value : null;
+    const opp1 = $("challengeOpponent1").value;
+    const opp2 = isDoubles ? $("challengeOpponent2").value : null;
+    const localTime = $("challengeDateTime").value;
+    const location = $("challengeLocation").value.trim();
+    const note = $("challengeNote").value.trim();
+
+    if (isDoubles && !partner) return setMessage($("challengeCreateMessage"), "Choose your partner.", "error");
+    if (!opp1 || (isDoubles && !opp2)) return setMessage($("challengeCreateMessage"), "Choose the player or pair you want to challenge.", "error");
+    if (!localTime) return setMessage($("challengeCreateMessage"), "Choose a proposed date and time.", "error");
+
+    const allIds = [me.id,partner,opp1,opp2].filter(Boolean);
+    if (new Set(allIds).size !== allIds.length) return setMessage($("challengeCreateMessage"), "Each player can only appear once.", "error");
+
+    const proposed = new Date(localTime);
+    if (Number.isNaN(proposed.getTime()) || proposed.getTime() <= Date.now()) {
+      return setMessage($("challengeCreateMessage"), "Choose a time in the future.", "error");
+    }
+
+    const teamA = isDoubles ? `${me.name} + ${challengePlayerName(partner)}` : me.name;
+    const teamB = isDoubles ? `${challengePlayerName(opp1)} + ${challengePlayerName(opp2)}` : challengePlayerName(opp1);
+    if (!confirm(`Send challenge?\n\n${teamA}\nvs\n${teamB}\n\n${proposed.toLocaleString()}${location ? `\n${location}` : ""}`)) return;
+
+    $("sendChallengeBtn").disabled = true;
+    const { error } = await sb.rpc("create_challenge", {
+      p_challenge_type:challengeType,
+      p_partner_id:partner || null,
+      p_opponent1_id:opp1,
+      p_opponent2_id:opp2 || null,
+      p_proposed_at:proposed.toISOString(),
+      p_location:location || null,
+      p_note:note || null
+    });
+    $("sendChallengeBtn").disabled = false;
+
+    if (error) return setMessage($("challengeCreateMessage"), error.message, "error");
+
+    $("challengePartner").value = "";
+    $("challengeOpponent1").value = "";
+    $("challengeOpponent2").value = "";
+    $("challengeLocation").value = "";
+    $("challengeNote").value = "";
+    $("challengeNoteCount").textContent = "0 / 500";
+    $("challengeDateTime").value = "";
+    defaultChallengeDateTime();
+
+    setMessage($("challengeCreateMessage"), "Challenge sent.", "success");
+    challengesLoaded = false;
+    await loadChallenges(true);
+  }
+
+  async function acceptChallenge(id) {
+    const c = challenges.find(x => x.id===id);
+    if (!c) return;
+    if (!confirm(`Accept this challenge for ${challengeTeamName(c,"b")}?\n\n${challengeDateParts(c.proposed_at).full}`)) return;
+    const { error } = await sb.rpc("respond_to_challenge", { p_challenge_id:id, p_decision:"accept" });
+    if (error) return alert(error.message);
+    challengesLoaded = false;
+    await loadChallenges(true);
+  }
+
+  async function declineChallenge(id) {
+    const c = challenges.find(x => x.id===id);
+    if (!c) return;
+    if (!confirm("Decline this challenge?")) return;
+    const { error } = await sb.rpc("respond_to_challenge", { p_challenge_id:id, p_decision:"decline" });
+    if (error) return alert(error.message);
+    challengesLoaded = false;
+    await loadChallenges(true);
+  }
+
+  async function cancelChallenge(id) {
+    const c = challenges.find(x => x.id===id);
+    if (!c) return;
+    if (!confirm(`Cancel ${challengeTeamName(c,"a")} vs ${challengeTeamName(c,"b")}?`)) return;
+    const { error } = await sb.rpc("cancel_challenge", { p_challenge_id:id });
+    if (error) return alert(error.message);
+    challengesLoaded = false;
+    await loadChallenges(true);
+  }
+
+  async function completeChallenge(id) {
+    const c = challenges.find(x => x.id===id);
+    if (!c) return;
+    if (!confirm(`Mark this challenge as played?\n\nThis only closes the scheduling challenge. It does NOT update rankings — submit the actual score through Submit Match.`)) return;
+    const { error } = await sb.rpc("complete_challenge", { p_challenge_id:id });
+    if (error) return alert(error.message);
+    challengesLoaded = false;
+    await loadChallenges(true);
+    if (confirm("Challenge marked played. Go to Submit Match now to enter the score?")) setView("submit");
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -2259,6 +2624,7 @@
     renderStatsHub();
     renderCommunity();
     renderTournamentHub();
+    renderChallenges();
     renderSelects();
     renderAuth();
     renderMyMatches();
@@ -2312,6 +2678,7 @@
     statsMatchesCache.clear();
     advancedStatsCache.clear();
     communityLoaded = false;
+    challengesLoaded = false;
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
     identityClaims = [];
@@ -2561,7 +2928,7 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v8")
+    realtimeChannel = sb.channel("xo-league-live-v9")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, async () => {
         await loadData();
@@ -2610,6 +2977,10 @@
         advancedStatsCache.clear();
         if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
         if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"challenges" }, () => {
+        challengesLoaded = false;
+        if ($("challenges")?.classList.contains("active")) loadChallenges(true);
       })
       .subscribe();
   }
@@ -2664,6 +3035,32 @@
       }
     });
 
+
+
+    $$(".challenge-type").forEach(btn => btn.addEventListener("click", () => {
+      challengeType = btn.dataset.challengeType;
+      renderChallengeComposer();
+      setMessage($("challengeCreateMessage"), "");
+    }));
+    ["challengePartner","challengeOpponent1","challengeOpponent2"].forEach(id => {
+      $(id).addEventListener("change", renderChallengeComposer);
+    });
+    $("challengeNote").addEventListener("input", () => {
+      $("challengeNoteCount").textContent = `${$("challengeNote").value.length} / 500`;
+    });
+    $("sendChallengeBtn").addEventListener("click", sendChallenge);
+
+    const challengeLists = ["incomingChallengeList","upcomingChallengeList","sentChallengeList","challengeHistoryList"];
+    challengeLists.forEach(id => $(id).addEventListener("click", e => {
+      const accept = e.target.closest("[data-challenge-accept]");
+      if (accept) return acceptChallenge(accept.dataset.challengeAccept);
+      const decline = e.target.closest("[data-challenge-decline]");
+      if (decline) return declineChallenge(decline.dataset.challengeDecline);
+      const cancel = e.target.closest("[data-challenge-cancel]");
+      if (cancel) return cancelChallenge(cancel.dataset.challengeCancel);
+      const complete = e.target.closest("[data-challenge-complete]");
+      if (complete) return completeChallenge(complete.dataset.challengeComplete);
+    }));
 
     $("tournamentSize").addEventListener("change", () => {
       const size = Number($("tournamentSize").value);
