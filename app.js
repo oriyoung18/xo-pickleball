@@ -60,6 +60,14 @@
   let challengesLoading = false;
   let challengeType = "doubles";
 
+  // Upgrade 10 — Notifications
+  let notifications = [];
+  let notificationsLoaded = false;
+  let notificationsLoading = false;
+  let notificationFilter = "all";
+  let notificationDrawerOpen = false;
+  let notificationToastTimer = null;
+
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => [...document.querySelectorAll(sel)];
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
@@ -2579,6 +2587,186 @@
     if (confirm("Challenge marked played. Go to Submit Match now to enter the score?")) setView("submit");
   }
 
+
+  function notificationIcon(type) {
+    return ({
+      identity:"ID",
+      match_confirmation:"✓",
+      match_status:"PB",
+      rank_change:"↕",
+      challenge:"VS",
+      chat:"#",
+      announcement:"📌",
+      system:"XO"
+    })[type] || "XO";
+  }
+
+  function notificationTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const diff = Math.max(0, now.getTime() - d.getTime());
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d`;
+    return d.toLocaleDateString([], {month:"short",day:"numeric"});
+  }
+
+  function unreadNotificationCount() {
+    return notifications.filter(n => !n.read_at).length;
+  }
+
+  function renderNotifications() {
+    if (!$("notificationList")) return;
+
+    const signed = !!currentUser;
+    const unread = unreadNotificationCount();
+
+    $("notificationBtn").classList.toggle("hidden", !signed);
+    $("notificationBadge").classList.toggle("hidden", !signed || unread === 0);
+    $("notificationBadge").textContent = unread > 99 ? "99+" : String(unread);
+
+    $("notificationDrawerSub").textContent = unread
+      ? `${unread} unread notification${unread === 1 ? "" : "s"}`
+      : "You're all caught up.";
+
+    $("markAllNotificationsRead").disabled = unread === 0;
+    $("markAllNotificationsRead").style.opacity = unread === 0 ? ".45" : "1";
+
+    $$(".notification-filter").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.notificationFilter === notificationFilter);
+    });
+
+    if (!signed) {
+      $("notificationList").innerHTML = `<div class="notification-empty-state"><b>Sign in to see notifications.</b></div>`;
+      return;
+    }
+
+    const rows = notificationFilter === "unread"
+      ? notifications.filter(n => !n.read_at)
+      : notifications;
+
+    $("notificationList").innerHTML = rows.length ? rows.map(n => `
+      <button class="notification-row ${n.read_at ? "" : "unread"}"
+        data-notification-open="${n.id}"
+        data-notification-view="${esc(n.action_view || "")}">
+        <span class="notification-type-icon type-${esc(n.type)}">${esc(notificationIcon(n.type))}</span>
+        <span class="notification-row-copy">
+          <span class="notification-row-head">
+            <strong>${esc(n.title)}</strong>
+            <time>${notificationTime(n.created_at)}</time>
+          </span>
+          ${n.body ? `<span class="notification-row-body">${esc(n.body)}</span>` : ""}
+        </span>
+        ${n.read_at ? "" : `<i class="notification-unread-dot"></i>`}
+      </button>
+    `).join("") : `
+      <div class="notification-empty-state">
+        <div>✓</div>
+        <b>${notificationFilter === "unread" ? "No unread notifications." : "No notifications yet."}</b>
+        <span>League activity will show up here automatically.</span>
+      </div>`;
+  }
+
+  async function loadNotifications(force=false) {
+    if (!configured || !currentUser) {
+      notifications = [];
+      notificationsLoaded = true;
+      renderNotifications();
+      return;
+    }
+    if (notificationsLoading) return;
+    if (notificationsLoaded && !force) {
+      renderNotifications();
+      return;
+    }
+
+    notificationsLoading = true;
+    try {
+      const { data, error } = await sb.from("notifications")
+        .select("*")
+        .order("created_at", { ascending:false })
+        .limit(100);
+
+      if (error) throw error;
+      notifications = data || [];
+      notificationsLoaded = true;
+      renderNotifications();
+    } catch (err) {
+      console.error(err);
+      $("notificationList").innerHTML = `<div class="notification-empty-state"><b>Could not load notifications.</b><span>${esc(err.message || err)}</span></div>`;
+    } finally {
+      notificationsLoading = false;
+    }
+  }
+
+  function openNotifications() {
+    if (!currentUser) return openAuth("signin");
+    notificationDrawerOpen = true;
+    $("notificationDrawer").classList.remove("hidden");
+    $("notificationOverlay").classList.remove("hidden");
+    $("notificationOverlay").setAttribute("aria-hidden","false");
+    document.body.classList.add("notification-drawer-open");
+    loadNotifications();
+  }
+
+  function closeNotifications() {
+    notificationDrawerOpen = false;
+    $("notificationDrawer").classList.add("hidden");
+    $("notificationOverlay").classList.add("hidden");
+    $("notificationOverlay").setAttribute("aria-hidden","true");
+    document.body.classList.remove("notification-drawer-open");
+  }
+
+  async function markNotificationRead(id, actionView="") {
+    const row = notifications.find(n => n.id === id);
+    if (row && !row.read_at) {
+      const { error } = await sb.rpc("mark_notification_read", { p_notification_id:id });
+      if (error) {
+        console.error(error);
+      } else {
+        row.read_at = new Date().toISOString();
+        renderNotifications();
+      }
+    }
+
+    if (actionView) {
+      closeNotifications();
+      setView(actionView);
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    if (!currentUser || unreadNotificationCount() === 0) return;
+    $("markAllNotificationsRead").disabled = true;
+    const { error } = await sb.rpc("mark_all_notifications_read");
+    if (error) {
+      console.error(error);
+      $("markAllNotificationsRead").disabled = false;
+      return;
+    }
+    const now = new Date().toISOString();
+    notifications.forEach(n => { if (!n.read_at) n.read_at = now; });
+    renderNotifications();
+  }
+
+  function showNotificationToast(row) {
+    if (!row || !currentUser) return;
+    if (notificationToastTimer) clearTimeout(notificationToastTimer);
+
+    $("notificationToastIcon").textContent = notificationIcon(row.type);
+    $("notificationToastTitle").textContent = row.title || "New notification";
+    $("notificationToastBody").textContent = row.body || "";
+    $("notificationToast").classList.remove("hidden");
+
+    notificationToastTimer = setTimeout(() => {
+      $("notificationToast").classList.add("hidden");
+    }, 4500);
+  }
+
   function renderHistory() {
     const approved = matches.filter(m => m.status === "approved").slice(0, 30);
     $("historyList").innerHTML = approved.length ? approved.map(m => {
@@ -2596,6 +2784,7 @@
     $("loginBtn").classList.toggle("hidden", signed);
     $("logoutBtn").classList.toggle("hidden", !signed);
     $("accountChip").classList.toggle("hidden", !signed);
+    $("notificationBtn").classList.toggle("hidden", !signed);
     $("accountChip").textContent = signed
       ? `${lp?.name || myProfile?.full_name || currentUser.email}${isCommissioner() ? " • COMMISSIONER" : lp ? " • VERIFIED" : " • UNVERIFIED"}`
       : "";
@@ -2625,6 +2814,7 @@
     renderCommunity();
     renderTournamentHub();
     renderChallenges();
+    renderNotifications();
     renderSelects();
     renderAuth();
     renderMyMatches();
@@ -2712,12 +2902,17 @@
   async function refreshProfile() {
     if (!configured || !currentUser) {
       myProfile = null;
+      notifications = [];
+      notificationsLoaded = false;
       renderAuth();
+      renderNotifications();
       return;
     }
     const { data, error } = await sb.from("profiles").select("id,full_name,role,player_id").eq("id", currentUser.id).maybeSingle();
     if (!error) myProfile = data;
     renderAll();
+    notificationsLoaded = false;
+    await loadNotifications(true);
   }
 
   async function initAuth() {
@@ -2928,7 +3123,7 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v9")
+    realtimeChannel = sb.channel("xo-league-live-v10")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
       .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, async () => {
         await loadData();
@@ -2982,10 +3177,34 @@
         challengesLoaded = false;
         if ($("challenges")?.classList.contains("active")) loadChallenges(true);
       })
+      .on("postgres_changes", { event:"*", schema:"public", table:"notifications" }, payload => {
+        if (!currentUser) return;
+        const row = payload.new || null;
+        notificationsLoaded = false;
+        loadNotifications(true);
+        if (row && !row.read_at && (payload.eventType === "INSERT" || payload.eventType === "UPDATE")) {
+          showNotificationToast(row);
+        }
+      })
       .subscribe();
   }
 
   function wireEvents() {
+
+    $("notificationBtn").addEventListener("click", openNotifications);
+    $("closeNotifications").addEventListener("click", closeNotifications);
+    $("notificationOverlay").addEventListener("click", closeNotifications);
+    $("markAllNotificationsRead").addEventListener("click", markAllNotificationsRead);
+    $$(".notification-filter").forEach(btn => btn.addEventListener("click", () => {
+      notificationFilter = btn.dataset.notificationFilter;
+      renderNotifications();
+    }));
+    $("notificationList").addEventListener("click", e => {
+      const row = e.target.closest("[data-notification-open]");
+      if (row) markNotificationRead(row.dataset.notificationOpen, row.dataset.notificationView || "");
+    });
+    $("notificationToast").addEventListener("click", openNotifications);
+
     $$(".nav-btn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
     $$('[data-go]').forEach(b => b.addEventListener("click", () => setView(b.dataset.go)));
     $("playerSearch").addEventListener("input", renderLeaderboard);
@@ -3149,7 +3368,12 @@
     });
     $("closePlayerProfile").addEventListener("click", closePlayerProfile);
     $("playerProfileModal").addEventListener("click", e => { if (e.target === $("playerProfileModal")) closePlayerProfile(); });
-    document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("playerProfileModal").classList.contains("hidden")) closePlayerProfile(); });
+    document.addEventListener("keydown", e => {
+      if (e.key !== "Escape") return;
+      if (!$("playerProfileModal").classList.contains("hidden")) closePlayerProfile();
+      if (!$("tournamentResultModal").classList.contains("hidden")) closeTournamentResult();
+      if (notificationDrawerOpen) closeNotifications();
+    });
 
     $("loginBtn").addEventListener("click", () => openAuth("signin"));
     $("loginFromSubmit").addEventListener("click", () => openAuth("signin"));
