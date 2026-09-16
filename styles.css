@@ -943,3 +943,117 @@ footer{padding:24px;text-align:center;color:#535d6c;font-size:10px;text-transfor
   .challenge-date-tile{height:70px}
   .challenge-matchup{grid-template-columns:1fr}.challenge-matchup span{display:none}.challenge-matchup strong:last-child{text-align:left}
 }
+
+
+/* ============================================================
+   HEADER / HUD RESPONSIVE POLISH
+   Fixes nav + commissioner + account overlap as features grow.
+   ============================================================ */
+
+/* Desktop: use the full width more intelligently instead of
+   letting the middle nav squeeze the account controls. */
+.site-header{
+  width:min(1480px,100%);
+  max-width:none;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  gap:14px;
+  padding:18px 16px;
+}
+
+.brand{
+  min-width:max-content;
+  gap:10px;
+}
+
+.nav-tabs{
+  min-width:0;
+  justify-self:center;
+  justify-content:center;
+  gap:3px;
+  padding:4px;
+}
+
+.nav-btn{
+  flex:0 0 auto;
+  white-space:nowrap;
+  padding:9px 10px;
+  font-size:13px;
+  line-height:1.1;
+}
+
+.account-area{
+  min-width:max-content;
+  gap:7px;
+}
+
+.account-area .btn{
+  padding:10px 11px;
+  font-size:12px;
+  white-space:nowrap;
+}
+
+.account-chip{
+  max-width:165px;
+  font-size:10px;
+}
+
+/* Mid-size laptops: compact the logo/header slightly. */
+@media(max-width:1320px){
+  .site-header{gap:10px}
+  .crest{width:49px;height:49px}
+  .crest .greek{font-size:21px}
+  .brand-kicker{font-size:8px;letter-spacing:.14em}
+  .brand h1{font-size:15px}
+  .nav-btn{padding:9px 8px;font-size:12px}
+  .account-chip{max-width:110px}
+}
+
+/* Once there genuinely isn't enough horizontal room, put the nav
+   on a clean second row rather than overlapping Commissioner. */
+@media(max-width:1180px){
+  .site-header{
+    grid-template-columns:1fr auto;
+    align-items:center;
+    row-gap:10px;
+  }
+
+  .nav-tabs{
+    grid-column:1/-1;
+    grid-row:2;
+    width:100%;
+    order:3;
+    justify-self:stretch;
+    justify-content:center;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+
+  .nav-tabs::-webkit-scrollbar{display:none}
+
+  .nav-btn{
+    flex:0 0 auto;
+    padding:9px 11px;
+  }
+
+  .account-chip{
+    max-width:180px;
+  }
+}
+
+/* Phones / narrow tablets: still usable, never stacked on top
+   of another control. */
+@media(max-width:700px){
+  .site-header{padding-top:12px;padding-bottom:10px}
+  .account-chip{display:none!important}
+  .account-area .btn{padding:9px 10px;font-size:11px}
+
+  .nav-tabs{
+    justify-content:flex-start;
+    border-radius:12px;
+  }
+
+  .nav-btn{
+    padding:9px 10px;
+    font-size:11px;
+  }
+}
