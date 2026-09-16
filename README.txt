@@ -15,3 +15,4 @@ After Netlify publishes:
 2. Hard refresh (Cmd+Shift+R on Mac)
 3. The status should say Live, not Connecting.
 4. Player count should reflect the database, not the 40-player placeholder.
+Branch preview enabled.

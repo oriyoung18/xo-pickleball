@@ -2,7 +2,15 @@
   "use strict";
 
   const SEED_PLAYERS = ["Cole Laursen", "Ori Young", "Jasper Rochette", "Joey Martin", "Max Melchiorre", "Kyle Elliot", "Dylan Santucci", "Martin Heath", "Cristian Laverde", "Jude Brantley", "Kevin Sarmiento", "Dylan Nelson", "Michael Russomano", "Caden Devers", "Zach Pyskaty", "Jake Guarneri", "Cam Shwartz", "Joey Perosi", "Camilo", "Zack Miron", "Lucas Esposito", "Jack Kwapinski", "Jordan Lockhart", "Aaron Willam", "Gian Cases", "Mark Stefanelli", "Mateusz Worosz", "Matt Stankowitz", "Anthony Alborea", "Ryan Jarvie", "Bryce Hamilton", "Jude Urban", "Nathaniel B", "Youssef Ouda", "Jacob J Gorfinkle", "Matt Shumsky", "Brian Freitas", "Joseph Elshamy", "Kendrick Mercredi", "Aydan Mutton"];
+  const rawAuthUrl = `${window.location.search || ""}&${(window.location.hash || "").replace(/^#/, "")}`;
+  const authUrlParams = new URLSearchParams(rawAuthUrl.replace(/^\?/, ""));
+  const recoveryLinkHint = authUrlParams.get("type") === "recovery";
+  const authRedirectError = authUrlParams.get("error_description") || authUrlParams.get("error") || "";
+
   const cfg = window.XO_CONFIG || {};
+  const authCfg = window.XO_AUTH_CONFIG || {};
+  const turnstileSiteKey = String(authCfg.TURNSTILE_SITE_KEY || "").trim();
+  const turnstileConfigured = !!turnstileSiteKey && !turnstileSiteKey.includes("PASTE_");
   const configured =
     cfg.SUPABASE_URL &&
     cfg.SUPABASE_PUBLISHABLE_KEY &&
@@ -25,6 +33,10 @@
   let currentUser = null;
   let myProfile = null;
   let authMode = "signin";
+  let pendingSignupEmail = "";
+  let turnstileWidgetId = null;
+  let turnstileToken = "";
+  let turnstileRenderNonce = 0;
   let realtimeChannel = null;
   const playerProfileCache = new Map();
   const statsMatchesCache = new Map();
@@ -412,6 +424,8 @@
       tag.textContent = "Not linked";
       claimBox.classList.remove("hidden");
       pendingBox.classList.add("hidden");
+      const newName = $("newPlayerName");
+      if (newName && !newName.value.trim() && myProfile?.full_name) newName.value = myProfile.full_name.trim();
     }
   }
 
@@ -506,6 +520,7 @@
       match_approved:`approved a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       match_rejected:`rejected a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       player_added:`added ${d.player_name || "a player"} at ${d.starting_rating ?? "?"}`,
+      player_self_registered:`${d.player_name || "a new player"} joined the league and created their own roster identity`,
       rating_changed:`changed ${d.player_name || "a player"} from ${d.old_rating ?? "?"} to ${d.new_rating ?? "?"}`,
       season_created:`started ${d.season_name || "a new season"} (${d.starting_mode === "fresh" ? "fresh ratings" : "carried ratings"})`,
       chat_message_deleted:`deleted a ${d.channel || "chat"} message from ${d.author_name || "a player"}`,
@@ -3308,6 +3323,124 @@
     await loadNotifications(true);
   }
 
+  function authRedirectUrl() {
+    const u = new URL(window.location.href);
+    u.search = "";
+    u.hash = "";
+    return `${u.origin}${u.pathname}`;
+  }
+
+  function authModeUsesCaptcha(mode = authMode) {
+    return ["signin", "signup", "forgot", "checkemail"].includes(mode);
+  }
+
+  function friendlyAuthError(error) {
+    const msg = String(error?.message || error || "Something went wrong.");
+    const lower = msg.toLowerCase();
+    if (lower.includes("invalid login credentials")) return "Email or password is incorrect.";
+    if (lower.includes("email not confirmed")) return "Confirm your email before signing in. Check your inbox for the XO verification email.";
+    if (lower.includes("user already registered")) return "That email already has an XO account. Sign in instead.";
+    if (lower.includes("email rate limit exceeded") || lower.includes("rate limit")) return "Too many authentication emails were requested. Wait a minute and try again.";
+    if (lower.includes("captcha") || lower.includes("security")) return "Human verification failed or expired. Complete the security check again and retry.";
+    if (lower.includes("password") && (lower.includes("weak") || lower.includes("least"))) return "Use a stronger password with at least 8 characters.";
+    if (lower.includes("email") && lower.includes("invalid")) return "Enter a valid email address.";
+    return msg;
+  }
+
+  function setAuthBusy(busy, label = "") {
+    const btn = $("authSubmit");
+    const resend = $("resendVerificationBtn");
+    if (btn) {
+      btn.disabled = busy;
+      if (label) btn.textContent = label;
+    }
+    if (resend) resend.disabled = busy;
+  }
+
+  function removeTurnstileWidget() {
+    turnstileToken = "";
+    if (turnstileWidgetId !== null && window.turnstile) {
+      try { window.turnstile.remove(turnstileWidgetId); } catch (_) {}
+    }
+    turnstileWidgetId = null;
+    const container = $("turnstileWidget");
+    if (container) container.innerHTML = "";
+  }
+
+  function resetTurnstileWidget() {
+    turnstileToken = "";
+    if (turnstileWidgetId !== null && window.turnstile) {
+      try { window.turnstile.reset(turnstileWidgetId); } catch (_) {}
+    }
+    if ($("turnstileStatus") && turnstileConfigured && authModeUsesCaptcha()) {
+      $("turnstileStatus").textContent = "Security check ready.";
+    }
+  }
+
+  async function renderTurnstileForAuth() {
+    const wrap = $("turnstileWrap");
+    const status = $("turnstileStatus");
+    if (!wrap) return;
+
+    const shouldShow = turnstileConfigured && authModeUsesCaptcha();
+    wrap.classList.toggle("hidden", !shouldShow);
+    if (!shouldShow) {
+      removeTurnstileWidget();
+      return;
+    }
+
+    const nonce = ++turnstileRenderNonce;
+    if (status) status.textContent = "Loading human verification…";
+
+    for (let i = 0; i < 40 && !window.turnstile; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      if (nonce !== turnstileRenderNonce) return;
+    }
+
+    if (!window.turnstile) {
+      if (status) status.textContent = "Security check could not load. Refresh the page and try again.";
+      return;
+    }
+
+    removeTurnstileWidget();
+    if (nonce !== turnstileRenderNonce) return;
+
+    try {
+      turnstileWidgetId = window.turnstile.render("#turnstileWidget", {
+        sitekey: turnstileSiteKey,
+        theme: "dark",
+        size: "flexible",
+        appearance: "interaction-only",
+        action: `xo_${authMode}`.slice(0, 32),
+        callback: (token) => {
+          turnstileToken = token;
+          if (status) status.textContent = "Human verification complete.";
+        },
+        "expired-callback": () => {
+          turnstileToken = "";
+          if (status) status.textContent = "Security check expired. Complete it again.";
+        },
+        "error-callback": () => {
+          turnstileToken = "";
+          if (status) status.textContent = "Security check failed to load. Retry or refresh.";
+        }
+      });
+      if (status) status.textContent = "Human verification runs automatically.";
+    } catch (err) {
+      console.error("Turnstile render failed", err);
+      if (status) status.textContent = "Security check could not start. Refresh and try again.";
+    }
+  }
+
+  function captchaTokenForAuth() {
+    if (!turnstileConfigured || !authModeUsesCaptcha()) return "";
+    if (!turnstileToken) {
+      setMessage($("authMessage"), "Complete the human verification before continuing.", "error");
+      return null;
+    }
+    return turnstileToken;
+  }
+
   async function initAuth() {
     if (!configured) {
       currentUser = null;
@@ -3315,57 +3448,181 @@
       renderAuth();
       return;
     }
+
+    sb.auth.onAuthStateChange(async (event, session) => {
+      currentUser = session?.user || null;
+      await refreshProfile();
+      await loadData();
+
+      if (event === "PASSWORD_RECOVERY") {
+        authMode = "reset";
+        openAuth("reset");
+        setMessage($("authMessage"), "Reset link accepted. Choose a new password.", "success");
+      }
+    });
+
     const { data } = await sb.auth.getSession();
     currentUser = data.session?.user || null;
     await refreshProfile();
 
-    sb.auth.onAuthStateChange(async (_event, session) => {
-      currentUser = session?.user || null;
-      await refreshProfile();
-      await loadData();
-    });
+    if (authRedirectError) {
+      openAuth("signin");
+      setMessage($("authMessage"), friendlyAuthError(authRedirectError), "error");
+    } else if (recoveryLinkHint && currentUser) {
+      openAuth("reset");
+      setMessage($("authMessage"), "Reset link accepted. Choose a new password.", "success");
+    }
   }
 
-  function openAuth(mode="signin") {
+  function openAuth(mode = "signin") {
     authMode = mode;
     $("authModal").classList.remove("hidden");
     updateAuthModal();
-    setTimeout(() => $("authEmail").focus(), 0);
+    setTimeout(() => {
+      const target = mode === "reset" ? $("authNewPassword") : $("authEmail");
+      target?.focus();
+    }, 0);
   }
 
   function closeAuth() {
     $("authModal").classList.add("hidden");
     setMessage($("authMessage"), "");
+    turnstileRenderNonce++;
+    removeTurnstileWidget();
   }
 
   function updateAuthModal() {
     const signup = authMode === "signup";
-    $("authTitle").textContent = signup ? "Create league account" : "Sign in";
-    $("authSubmit").textContent = signup ? "Create account" : "Sign in";
-    $("authSwitch").textContent = signup ? "Already have an account? Sign in" : "Need an account? Sign up";
+    const signin = authMode === "signin";
+    const forgot = authMode === "forgot";
+    const checkemail = authMode === "checkemail";
+    const reset = authMode === "reset";
+
+    const copy = {
+      signin: ["Sign in", "Sign in to submit scores, confirm matches, chat, and manage your player profile."],
+      signup: ["Create league account", "Create your XO account first. After verification, claim your roster name or create a brand-new player."],
+      forgot: ["Reset password", "Enter your account email and we will send you a secure reset link."],
+      checkemail: ["Verify your email", "One quick step before your XO account is active."],
+      reset: ["Choose a new password", "Your reset link is valid. Set a new password for your XO account."]
+    }[authMode] || ["League account", "XO Pickleball authentication."];
+
+    $("authTitle").textContent = copy[0];
+    $("authSubtitle").textContent = copy[1];
     $("nameField").classList.toggle("hidden", !signup);
+    $("emailField").classList.toggle("hidden", checkemail || reset);
+    $("passwordField").classList.toggle("hidden", forgot || checkemail || reset);
+    $("newPasswordField").classList.toggle("hidden", !reset);
+    $("confirmPasswordField").classList.toggle("hidden", !reset);
+    $("authCheckEmail").classList.toggle("hidden", !checkemail);
+    $("authSubmit").classList.toggle("hidden", checkemail);
+    $("resendVerificationBtn").classList.toggle("hidden", !checkemail);
+    $("forgotPasswordBtn").classList.toggle("hidden", !signin);
+    $("authSwitch").classList.toggle("hidden", !(signin || signup));
+    $("authBackToSignin").classList.toggle("hidden", signin || signup);
+
+    $("authSubmit").textContent = signup ? "Create account" : forgot ? "Send reset link" : reset ? "Update password" : "Sign in";
+    $("authSwitch").textContent = signup ? "Already have an account? Sign in" : "Need an account? Sign up";
+    $("authPendingEmail").textContent = pendingSignupEmail || "your email";
+    $("authPassword").autocomplete = signup ? "new-password" : "current-password";
+    setMessage($("authMessage"), "");
+    setTimeout(renderTurnstileForAuth, 0);
   }
 
   async function submitAuth() {
     if (!configured) return setMessage($("authMessage"), "Connect Supabase first using the setup guide.", "error");
-    const email = $("authEmail").value.trim();
+
+    if (authMode === "reset") {
+      const password = $("authNewPassword").value;
+      const confirmPassword = $("authConfirmPassword").value;
+      if (password.length < 8) return setMessage($("authMessage"), "Use a password with at least 8 characters.", "error");
+      if (password !== confirmPassword) return setMessage($("authMessage"), "The two passwords do not match.", "error");
+      setAuthBusy(true, "Updating…");
+      const { error } = await sb.auth.updateUser({ password });
+      setAuthBusy(false, "Update password");
+      if (error) return setMessage($("authMessage"), friendlyAuthError(error), "error");
+      $("authNewPassword").value = "";
+      $("authConfirmPassword").value = "";
+      setMessage($("authMessage"), "Password updated. You are signed in.", "success");
+      setTimeout(closeAuth, 900);
+      return;
+    }
+
+    const email = $("authEmail").value.trim().toLowerCase();
     const password = $("authPassword").value;
     const fullName = $("authName").value.trim();
-    if (!email || password.length < 8 || (authMode === "signup" && !fullName)) {
-      return setMessage($("authMessage"), "Enter a valid email, an 8+ character password, and your name.", "error");
+
+    if (!email) return setMessage($("authMessage"), "Enter your email address.", "error");
+    if ((authMode === "signin" || authMode === "signup") && password.length < 8) {
+      return setMessage($("authMessage"), "Enter an 8+ character password.", "error");
+    }
+    if (authMode === "signup" && !fullName) {
+      return setMessage($("authMessage"), "Enter the name you want tied to your account.", "error");
     }
 
-    $("authSubmit").disabled = true;
-    const result = authMode === "signup"
-      ? await sb.auth.signUp({ email, password, options:{ data:{ full_name:fullName } } })
-      : await sb.auth.signInWithPassword({ email, password });
-    $("authSubmit").disabled = false;
+    const captchaToken = captchaTokenForAuth();
+    if (captchaToken === null) return;
 
-    if (result.error) return setMessage($("authMessage"), result.error.message, "error");
+    if (authMode === "forgot") {
+      setAuthBusy(true, "Sending…");
+      const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: authRedirectUrl(),
+        ...(captchaToken ? { captchaToken } : {})
+      });
+      setAuthBusy(false, "Send reset link");
+      resetTurnstileWidget();
+      if (error) return setMessage($("authMessage"), friendlyAuthError(error), "error");
+      setMessage($("authMessage"), "If that email is registered, a password reset link is on the way. Check your inbox and spam folder.", "success");
+      return;
+    }
+
+    setAuthBusy(true, authMode === "signup" ? "Creating…" : "Signing in…");
+    const result = authMode === "signup"
+      ? await sb.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName },
+            emailRedirectTo: authRedirectUrl(),
+            ...(captchaToken ? { captchaToken } : {})
+          }
+        })
+      : await sb.auth.signInWithPassword({
+          email,
+          password,
+          ...(captchaToken ? { options: { captchaToken } } : {})
+        });
+
+    setAuthBusy(false, authMode === "signup" ? "Create account" : "Sign in");
+    resetTurnstileWidget();
+
+    if (result.error) return setMessage($("authMessage"), friendlyAuthError(result.error), "error");
     if (authMode === "signup" && !result.data.session) {
-      return setMessage($("authMessage"), "Account created. Check your email to confirm it, then sign in.", "success");
+      pendingSignupEmail = email;
+      authMode = "checkemail";
+      updateAuthModal();
+      setMessage($("authMessage"), "Verification email sent.", "success");
+      return;
     }
     closeAuth();
+  }
+
+  async function resendVerificationEmail() {
+    if (!configured || !pendingSignupEmail) return;
+    const captchaToken = captchaTokenForAuth();
+    if (captchaToken === null) return;
+    setAuthBusy(true);
+    const { error } = await sb.auth.resend({
+      type: "signup",
+      email: pendingSignupEmail,
+      options: {
+        emailRedirectTo: authRedirectUrl(),
+        ...(captchaToken ? { captchaToken } : {})
+      }
+    });
+    setAuthBusy(false);
+    resetTurnstileWidget();
+    if (error) return setMessage($("authMessage"), friendlyAuthError(error), "error");
+    setMessage($("authMessage"), "Verification email resent. Check your inbox and spam folder.", "success");
   }
 
   async function requestIdentity() {
@@ -3378,6 +3635,50 @@
     if (error) return setMessage($("claimMessage"), error.message, "error");
     setMessage($("claimMessage"), "Identity request sent to Ori.", "success");
     await loadData();
+  }
+
+  async function createNewPlayerIdentity() {
+    if (!currentUser) return openAuth("signin");
+    if (linkedPlayer()) return setMessage($("newPlayerMessage"), "Your account is already linked to a player.", "error");
+
+    const input = $("newPlayerName");
+    const name = (input?.value || "").trim().replace(/\s+/g," ");
+    if (name.length < 2 || name.length > 60) {
+      return setMessage($("newPlayerMessage"), "Enter the name you want shown on the leaderboard.", "error");
+    }
+
+    const existing = players.find(p => p.name.trim().toLowerCase() === name.toLowerCase() && !p.merged_into_player_id);
+    if (existing) {
+      const available = claimStatus.find(c => c.player_id === existing.id && !c.is_claimed);
+      if (available) {
+        $("claimPlayerSelect").value = existing.id;
+        return setMessage($("newPlayerMessage"), `${existing.name} is already on the roster. Use Option 1 above and request that existing identity instead.`, "error");
+      }
+      return setMessage($("newPlayerMessage"), `${existing.name} already exists and is linked to an account. Ask Ori before creating anything new.`, "error");
+    }
+
+    const ok = confirm(
+      `CREATE NEW PLAYER?\n\n${name}\n\nThis immediately adds you to the active leaderboard at 1500 with high rating uncertainty (±350) and PROV status until 5 approved matches.\n\nOnly continue if you are NOT already on the roster.`
+    );
+    if (!ok) return;
+
+    const btn = $("createNewPlayerBtn");
+    btn.disabled = true;
+    setMessage($("newPlayerMessage"), "Creating your league player…");
+    const { data, error } = await sb.rpc("self_register_player", { p_name:name });
+    btn.disabled = false;
+
+    if (error) return setMessage($("newPlayerMessage"), error.message, "error");
+
+    await refreshProfile();
+    await loadData();
+
+    const created = playerById(data);
+    setView("leaderboard");
+    if (created && $("playerSearch")) {
+      $("playerSearch").value = created.name;
+      renderLeaderboard();
+    }
   }
 
   async function reviewIdentityClaim(id, decision) {
@@ -3464,12 +3765,12 @@
 
   async function addPlayer() {
     if (!isCommissioner()) return;
-    const name = $("newPlayerName").value.trim();
+    const name = $("adminNewPlayerName").value.trim();
     const rating = Math.round(Number($("newPlayerRating").value));
     if (!name || !Number.isFinite(rating)) return setMessage($("adminMessage"), "Enter a player name and rating.", "error");
     const { error } = await sb.rpc("commissioner_add_player", { p_name:name, p_rating:rating });
     if (error) return setMessage($("adminMessage"), error.message, "error");
-    $("newPlayerName").value = "";
+    $("adminNewPlayerName").value = "";
     setMessage($("adminMessage"), `${name} added as a provisional player.`, "success");
     await loadData();
   }
@@ -3839,9 +4140,16 @@
     $("closeAuth").addEventListener("click", closeAuth);
     $("authModal").addEventListener("click", e => { if (e.target === $("authModal")) closeAuth(); });
     $("authSwitch").addEventListener("click", () => { authMode = authMode === "signin" ? "signup" : "signin"; updateAuthModal(); });
+    $("forgotPasswordBtn").addEventListener("click", () => { authMode = "forgot"; updateAuthModal(); });
+    $("authBackToSignin").addEventListener("click", () => { authMode = "signin"; updateAuthModal(); });
+    $("resendVerificationBtn").addEventListener("click", resendVerificationEmail);
     $("authSubmit").addEventListener("click", submitAuth);
+    ["authEmail","authPassword","authName","authNewPassword","authConfirmPassword"].forEach(id => {
+      $(id)?.addEventListener("keydown", e => { if (e.key === "Enter" && !$("authSubmit").classList.contains("hidden")) submitAuth(); });
+    });
 
     $("claimPlayerBtn").addEventListener("click", requestIdentity);
+    $("createNewPlayerBtn").addEventListener("click", createNewPlayerIdentity);
     $("confirmationList").addEventListener("click", e => {
       const c = e.target.closest("[data-confirm]");
       const d = e.target.closest("[data-dispute]");
