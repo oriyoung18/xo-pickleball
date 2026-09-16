@@ -412,6 +412,8 @@
       tag.textContent = "Not linked";
       claimBox.classList.remove("hidden");
       pendingBox.classList.add("hidden");
+      const newName = $("selfRegisterPlayerName");
+      if (newName && !newName.value.trim() && myProfile?.full_name) newName.value = myProfile.full_name.trim();
     }
   }
 
@@ -506,6 +508,7 @@
       match_approved:`approved a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       match_rejected:`rejected a match ${d.score_a ?? "?"}-${d.score_b ?? "?"}`,
       player_added:`added ${d.player_name || "a player"} at ${d.starting_rating ?? "?"}`,
+      player_self_registered:`${d.player_name || "a new player"} joined the league and created their own roster identity`,
       rating_changed:`changed ${d.player_name || "a player"} from ${d.old_rating ?? "?"} to ${d.new_rating ?? "?"}`,
       season_created:`started ${d.season_name || "a new season"} (${d.starting_mode === "fresh" ? "fresh ratings" : "carried ratings"})`,
       chat_message_deleted:`deleted a ${d.channel || "chat"} message from ${d.author_name || "a player"}`,
@@ -3380,6 +3383,50 @@
     await loadData();
   }
 
+  async function createNewPlayerIdentity() {
+    if (!currentUser) return openAuth("signin");
+    if (linkedPlayer()) return setMessage($("newPlayerMessage"), "Your account is already linked to a player.", "error");
+
+    const input = $("selfRegisterPlayerName");
+    const name = (input?.value || "").trim().replace(/\s+/g," ");
+    if (name.length < 2 || name.length > 60) {
+      return setMessage($("newPlayerMessage"), "Enter the name you want shown on the leaderboard.", "error");
+    }
+
+    const existing = players.find(p => p.name.trim().toLowerCase() === name.toLowerCase() && !p.merged_into_player_id);
+    if (existing) {
+      const available = claimStatus.find(c => c.player_id === existing.id && !c.is_claimed);
+      if (available) {
+        $("claimPlayerSelect").value = existing.id;
+        return setMessage($("newPlayerMessage"), `${existing.name} is already on the roster. Use Option 1 above and request that existing identity instead.`, "error");
+      }
+      return setMessage($("newPlayerMessage"), `${existing.name} already exists and is linked to an account. Ask Ori before creating anything new.`, "error");
+    }
+
+    const ok = confirm(
+      `CREATE NEW PLAYER?\n\n${name}\n\nThis immediately adds you to the active leaderboard at 1500 with high rating uncertainty (±350) and PROV status until 5 approved matches.\n\nOnly continue if you are NOT already on the roster.`
+    );
+    if (!ok) return;
+
+    const btn = $("createNewPlayerBtn");
+    btn.disabled = true;
+    setMessage($("newPlayerMessage"), "Creating your league player…");
+    const { data, error } = await sb.rpc("self_register_player", { p_name:name });
+    btn.disabled = false;
+
+    if (error) return setMessage($("newPlayerMessage"), error.message, "error");
+
+    await refreshProfile();
+    await loadData();
+
+    const created = playerById(data);
+    setView("leaderboard");
+    if (created && $("playerSearch")) {
+      $("playerSearch").value = created.name;
+      renderLeaderboard();
+    }
+  }
+
   async function reviewIdentityClaim(id, decision) {
     if (!isCommissioner()) return;
     const buttons = $$(`[data-claim-review="${id}"]`);
@@ -3842,6 +3889,7 @@
     $("authSubmit").addEventListener("click", submitAuth);
 
     $("claimPlayerBtn").addEventListener("click", requestIdentity);
+    $("createNewPlayerBtn").addEventListener("click", createNewPlayerIdentity);
     $("confirmationList").addEventListener("click", e => {
       const c = e.target.closest("[data-confirm]");
       const d = e.target.closest("[data-dispute]");

@@ -763,10 +763,38 @@
           </div>
           <div id="linkedIdentityCard" class="identity-card hidden"></div>
           <div id="claimIdentityBox">
-            <p class="muted-copy">Choose your actual roster name. Ori reviews the request before the account is linked, so nobody can steal another player's identity.</p>
-            <label>Your roster name<select id="claimPlayerSelect"></select></label>
-            <button id="claimPlayerBtn" class="btn gold-btn wide">Request identity</button>
-            <div id="claimMessage" class="form-message" aria-live="polite"></div>
+            <div class="identity-onboarding-option">
+              <div class="identity-option-head">
+                <div><span class="identity-option-step">OPTION 1</span><strong>Already on the roster?</strong></div>
+                <span class="tag gold">Claim existing</span>
+              </div>
+              <p class="muted-copy">Choose your existing roster name. Ori reviews the request before the account is linked, so nobody can steal another player's identity.</p>
+              <label>Your roster name<select id="claimPlayerSelect"></select></label>
+              <button id="claimPlayerBtn" class="btn gold-btn wide">Request existing identity</button>
+              <div id="claimMessage" class="form-message" aria-live="polite"></div>
+            </div>
+
+            <div class="identity-choice-divider"><span>OR</span></div>
+
+            <div class="identity-onboarding-option new-player-option">
+              <div class="identity-option-head">
+                <div><span class="identity-option-step">OPTION 2</span><strong>Brand new to XO?</strong></div>
+                <span class="tag red">New player</span>
+              </div>
+              <p class="muted-copy">If your name is not already anywhere on the roster, create your player profile yourself. You will be linked immediately and added to the active-season leaderboard as a provisional player.</p>
+              <label>Leaderboard name
+                <input id="selfRegisterPlayerName" class="input" type="text" maxlength="60" autocomplete="name" placeholder="First Last" />
+              </label>
+              <div class="new-player-start-card">
+                <div><span>START</span><b>1500</b></div>
+                <div><span>STATUS</span><b>PROV</b></div>
+                <div><span>UNCERTAINTY</span><b>Low ±350</b></div>
+                <div><span>PLACEMENT</span><b>5 games</b></div>
+              </div>
+              <div class="new-player-warning"><b>Only use this if you are actually new.</b> If your name already exists above, claim it instead so we do not create a duplicate.</div>
+              <button id="createNewPlayerBtn" class="btn primary wide">Create my player &amp; join leaderboard</button>
+              <div id="newPlayerMessage" class="form-message" aria-live="polite"></div>
+            </div>
           </div>
           <div id="claimPendingBox" class="callout hidden"></div>
         </section>
