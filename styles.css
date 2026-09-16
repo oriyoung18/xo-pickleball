@@ -723,3 +723,115 @@ footer{padding:24px;text-align:center;color:#535d6c;font-size:10px;text-transfor
   .tournament-detail-head{flex-direction:column}
   .seed-grid{grid-template-columns:1fr}
 }
+
+
+/* ============================================================
+   UPGRADE 8 — ACHIEVEMENTS + ADVANCED STATS
+   ============================================================ */
+.stats-center-hero{
+  background:
+    radial-gradient(circle at 89% 25%,rgba(212,175,55,.16),transparent 27%),
+    radial-gradient(circle at 75% 75%,rgba(204,0,51,.08),transparent 24%),
+    linear-gradient(180deg,rgba(17,21,28,.99),rgba(10,13,18,.99))
+}
+.advanced-stats-section{display:grid;gap:16px;margin-bottom:22px}
+.advanced-summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.advanced-summary-card{
+  border:1px solid var(--line);border-radius:14px;padding:14px 15px;
+  background:linear-gradient(180deg,rgba(17,21,28,.98),rgba(11,14,18,.98))
+}
+.advanced-summary-card span,.advanced-summary-card small,.advanced-summary-card strong{display:block}
+.advanced-summary-card span{font-size:8px;color:var(--muted);font-weight:950;letter-spacing:.1em;text-transform:uppercase}
+.advanced-summary-card strong{font-size:27px;line-height:1.05;margin:5px 0;color:#f5f7fa}
+.advanced-summary-card small{font-size:9px;color:var(--muted)}
+.league-awards-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.league-award-card{
+  min-height:142px;border:1px solid var(--line);border-radius:14px;padding:13px;
+  background:
+    radial-gradient(circle at 85% 15%,rgba(212,175,55,.08),transparent 30%),
+    #0d1117;display:grid;grid-template-columns:46px 1fr;gap:10px;align-content:start;position:relative
+}
+.league-award-icon{
+  width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+  background:rgba(212,175,55,.09);border:1px solid rgba(212,175,55,.18);font-size:21px;color:var(--gold2)
+}
+.league-award-copy span,.league-award-copy strong,.league-award-copy small{display:block}
+.league-award-copy span{font-size:7px;color:var(--gold);font-weight:950;letter-spacing:.09em}
+.league-award-copy strong{font-size:12px;margin:4px 0}.league-award-copy small{font-size:9px;color:var(--muted);line-height:1.45}
+.league-award-card>button{
+  grid-column:1/-1;justify-self:start;border:0;background:transparent;color:var(--gold2);
+  font-size:8px;font-weight:950;padding:0;margin-top:5px
+}
+.advanced-stats-columns{align-items:stretch}
+.advanced-stats-loading{color:var(--muted);font-size:11px;padding:30px 10px;text-align:center;grid-column:1/-1}
+.weekly-movers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.weekly-mover-column{display:grid;gap:6px}
+.weekly-mover-heading{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:9px;font-weight:900;margin-bottom:2px}
+.weekly-mover-heading span{font-size:14px;color:var(--gold)}
+.weekly-mover-row{
+  display:grid;grid-template-columns:30px 1fr auto;gap:8px;align-items:center;
+  border:1px solid var(--line);border-radius:10px;background:#0b0f14;color:var(--text);padding:8px;text-align:left
+}
+.weekly-mover-row:hover{border-color:rgba(212,175,55,.28)}
+.weekly-place{font-size:9px;color:var(--muted);font-weight:900}
+.weekly-mover-row strong,.weekly-mover-row small{display:block}
+.weekly-mover-row strong{font-size:10px}.weekly-mover-row small{font-size:8px;color:var(--muted);margin-top:2px}
+.weekly-mover-row>b{font-size:12px}
+.compact-empty{padding:14px 6px!important}
+.achievement-board{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.achievement-category{
+  display:grid;grid-template-columns:38px 1fr auto;gap:8px;align-items:center;
+  border:1px solid var(--line);border-radius:11px;padding:8px;background:#0c1015
+}
+.achievement-category.locked{opacity:.42}
+.achievement-icon{
+  width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  background:rgba(212,175,55,.08);font-size:15px;font-weight:950;color:var(--gold2)
+}
+.achievement-category strong,.achievement-category span{display:block}
+.achievement-category strong{font-size:9px}.achievement-category span{font-size:7px;color:var(--muted);margin-top:2px;line-height:1.35}
+.achievement-category>b{font-size:12px;color:var(--gold)}
+.power-table-panel{overflow:hidden}
+.advanced-player-table{width:100%;border-collapse:collapse}
+.advanced-player-table th{
+  font-size:7px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;text-align:left;padding:9px;border-bottom:1px solid var(--line)
+}
+.advanced-player-table td{font-size:10px;padding:10px 9px;border-bottom:1px solid rgba(255,255,255,.055)}
+.advanced-player-table tbody tr{cursor:pointer}.advanced-player-table tbody tr:hover{background:rgba(255,255,255,.025)}
+.advanced-player-table td:nth-child(n+3){font-variant-numeric:tabular-nums}
+.advanced-player-table td strong,.advanced-player-table td small{display:block}
+.advanced-player-table td small{font-size:9px;margin-top:2px;letter-spacing:2px}
+.prov-mini{font-size:7px;padding:3px 5px;border-radius:999px;background:rgba(212,175,55,.08);color:var(--gold);font-weight:950}
+.matchup-lab-divider{
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:18px 4px 15px;margin-top:4px
+}
+.matchup-lab-divider h3{font-size:22px;margin:3px 0 4px}
+.matchup-lab-divider p{color:var(--muted);font-size:10px;margin:0}
+.profile-badge-cabinet{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.profile-badge{
+  display:grid;grid-template-columns:40px 1fr;gap:8px;align-items:center;
+  border:1px solid var(--line);border-radius:11px;padding:9px;background:#0c1015
+}
+.profile-badge>span{
+  width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+  background:rgba(212,175,55,.08);font-size:15px;font-weight:950;color:var(--gold2)
+}
+.profile-badge strong,.profile-badge small{display:block}
+.profile-badge strong{font-size:9px}.profile-badge small{font-size:7px;color:var(--muted);margin-top:2px}
+.profile-badge.scarlet{border-color:rgba(204,0,51,.28)}.profile-badge.scarlet>span{background:rgba(204,0,51,.12);color:#ff6d90}
+.profile-badge.green{border-color:rgba(57,217,138,.25)}.profile-badge.green>span{background:rgba(57,217,138,.09);color:#78e5aa}
+.profile-badge.silver>span{background:rgba(180,190,205,.08);color:#cfd6df}
+@media(max-width:1100px){
+  .advanced-summary-grid{grid-template-columns:repeat(2,1fr)}
+  .league-awards-grid{grid-template-columns:repeat(2,1fr)}
+  .achievement-board{grid-template-columns:1fr}
+  .profile-badge-cabinet{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:700px){
+  .advanced-summary-grid{grid-template-columns:1fr 1fr}
+  .league-awards-grid{grid-template-columns:1fr}
+  .weekly-movers{grid-template-columns:1fr}
+  .advanced-player-table{min-width:720px}
+  .profile-badge-cabinet{grid-template-columns:1fr}
+}

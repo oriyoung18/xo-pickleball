@@ -114,11 +114,11 @@
 
 
     <section id="stats" class="view">
-      <div class="stats-lab-hero panel">
+      <div class="stats-lab-hero stats-center-hero panel">
         <div>
-          <div class="panel-kicker">MATCHUP LAB • <span id="statsScopeLabel">Fall 2026</span></div>
-          <h2>Head-to-Head & Partner Chemistry</h2>
-          <p>Compare any two players as opponents or teammates. Everything below is calculated from approved league matches only.</p>
+          <div class="panel-kicker">XO ANALYTICS • <span id="statsScopeLabel">Fall 2026</span></div>
+          <h2>Stats Center</h2>
+          <p>Achievements, league leaders, weekly movers, upset tracking, streaks, and the full head-to-head matchup lab.</p>
         </div>
         <div class="stats-lab-mark">ΧΦ</div>
       </div>
@@ -139,6 +139,109 @@
       </div>
 
       <div id="statsContent">
+        <section class="advanced-stats-section">
+          <div class="advanced-summary-grid">
+            <article class="advanced-summary-card">
+              <span>Official Players</span>
+              <strong id="advOfficialPlayers">—</strong>
+              <small id="advOfficialSub">ranked in this view</small>
+            </article>
+            <article class="advanced-summary-card">
+              <span>Approved Matches</span>
+              <strong id="advApprovedMatches">—</strong>
+              <small id="advMatchesSub">in this view</small>
+            </article>
+            <article class="advanced-summary-card">
+              <span>Average Rating</span>
+              <strong id="advAvgRating">—</strong>
+              <small>active roster</small>
+            </article>
+            <article class="advanced-summary-card">
+              <span>Highest Rating</span>
+              <strong id="advTopRating">—</strong>
+              <small id="advTopRatingName">—</small>
+            </article>
+          </div>
+
+          <section class="panel league-awards-panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-kicker">LEAGUE AWARDS</div>
+                <h3>Current Leaders</h3>
+              </div>
+              <span class="tag gold">Auto-calculated</span>
+            </div>
+            <div id="leagueAwardsGrid" class="league-awards-grid">
+              <div class="advanced-stats-loading">Loading league awards…</div>
+            </div>
+          </section>
+
+          <div class="stats-two-col advanced-stats-columns">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-kicker">LAST 7 DAYS</div>
+                  <h3>Weekly Movers</h3>
+                </div>
+                <span class="tag red">Rating movement</span>
+              </div>
+              <div id="weeklyMovers" class="weekly-movers">
+                <div class="advanced-stats-loading">Loading rating movement…</div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <div class="panel-kicker">BADGE CABINET</div>
+                  <h3>Achievements</h3>
+                </div>
+                <span id="achievementCountBadge" class="tag gold">0 earned</span>
+              </div>
+              <div id="achievementBoard" class="achievement-board">
+                <div class="advanced-stats-loading">Loading achievements…</div>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel power-table-panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-kicker">DEEP STATS</div>
+                <h3>Player Performance Table</h3>
+              </div>
+              <span class="tag gold">Top 20 by rating</span>
+            </div>
+            <div class="table-wrap">
+              <table class="advanced-player-table">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Rating</th>
+                    <th>Record</th>
+                    <th>Win %</th>
+                    <th>Point Diff</th>
+                    <th>Best Streak</th>
+                    <th>Upset Wins</th>
+                  </tr>
+                </thead>
+                <tbody id="advancedPlayerTableBody">
+                  <tr><td colspan="8">Loading advanced stats…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="matchup-lab-divider">
+            <div>
+              <div class="panel-kicker">MATCHUP LAB</div>
+              <h3>Head-to-Head & Partner Chemistry</h3>
+              <p>Pick any two players above to compare them as opponents and teammates.</p>
+            </div>
+          </div>
+        </section>
+
         <div class="stats-two-col">
           <section class="panel matchup-card h2h-card">
             <div class="panel-head">

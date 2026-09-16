@@ -28,6 +28,8 @@
   let realtimeChannel = null;
   const playerProfileCache = new Map();
   const statsMatchesCache = new Map();
+  const advancedStatsCache = new Map();
+  let advancedStatsLoading = false;
   let statsPlayerAId = null;
   let statsPlayerBId = null;
   let statsLoading = false;
@@ -80,6 +82,7 @@
     if (id === "stats") {
       renderStatsHub();
       loadStatsMatches();
+      loadAdvancedStatsData();
     }
     if (id === "community") {
       renderCommunity();
@@ -646,6 +649,9 @@
           playerProfileCache.set(playerId, data);
         }
       }
+      if (!advancedStatsCache.has(statsScopeKey())) {
+        await loadAdvancedStatsData();
+      }
       if (openProfilePlayerId === playerId) renderPlayerProfile(playerId, data.results, data.matches);
     } catch (err) {
       console.error(err);
@@ -740,6 +746,20 @@
         ${signatureCard(bestWin, "BIGGEST WIN", "No wins yet")}
         ${signatureCard(worstLoss, "WORST LOSS", "No losses yet")}
       </div>
+
+      <section class="profile-section profile-achievements-section">
+        <div class="profile-section-head"><div><span>ACHIEVEMENTS</span><h3>Badge Cabinet</h3></div></div>
+        <div class="profile-badge-cabinet">
+          ${(() => {
+            const adv=advancedStatsCache.get(statsScopeKey());
+            const ctx=adv?buildAdvancedContext(statsMatchesCache.get(statsScopeKey())||[],adv):null;
+            const badges=badgeDefinitionsForPlayer(playerId,ctx);
+            return badges.length
+              ? badges.map(b=>`<div class="profile-badge ${b.tier}"><span>${b.icon}</span><div><strong>${esc(b.name)}</strong><small>${esc(b.detail)}</small></div></div>`).join("")
+              : `<div class="empty">No badges earned in this view yet.</div>`;
+          })()}
+        </div>
+      </section>
 
       <section class="profile-section">
         <div class="profile-section-head"><div><span>MATCH LOG</span><h3>Recent approved matches</h3></div><b>${profileMatches.length} total</b></div>
@@ -1011,6 +1031,7 @@
   function renderStatsHub() {
     if (!$("statsPlayerA")) return;
     renderStatsControls();
+    renderAdvancedStats();
     const p1 = playerById(statsPlayerAId);
     const p2 = playerById(statsPlayerBId);
 
@@ -1077,6 +1098,473 @@
     }
   }
 
+
+
+  function advancedScopeResults(obj) {
+    return obj?.results || [];
+  }
+
+  function advancedScopeTournamentResults(obj) {
+    return obj?.tournamentResults || [];
+  }
+
+  function advancedScopeTournaments(obj) {
+    return obj?.tournaments || [];
+  }
+
+  function resultRatingBeforeForScope(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_before ?? r.rating_before)
+      : Number(r.rating_before);
+  }
+
+  function resultRatingDeltaForScope(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_delta ?? r.rating_delta)
+      : Number(r.rating_delta);
+  }
+
+  function tournamentRatingDeltaForScope(r) {
+    return selectedSeasonId && selectedSeasonId !== "all"
+      ? Number(r.season_rating_delta ?? r.rating_delta)
+      : Number(r.rating_delta);
+  }
+
+  function buildPlayerAdvancedMetrics(matchRows, resultRows) {
+    const metrics = new Map();
+    selectedRows().forEach(p => {
+      metrics.set(p.id, {
+        playerId:p.id,
+        games:0,
+        wins:0,
+        losses:0,
+        pointsFor:0,
+        pointsAgainst:0,
+        pointDiff:0,
+        bestWinStreak:0,
+        currentWinStreak:0,
+        upsetWins:0
+      });
+    });
+
+    matchRows.forEach(m => {
+      const add = (pid, own, opp) => {
+        if (!metrics.has(pid)) {
+          metrics.set(pid, {
+            playerId:pid,games:0,wins:0,losses:0,
+            pointsFor:0,pointsAgainst:0,pointDiff:0,
+            bestWinStreak:0,currentWinStreak:0,upsetWins:0
+          });
+        }
+        const x = metrics.get(pid);
+        x.games++;
+        x.pointsFor += Number(own);
+        x.pointsAgainst += Number(opp);
+        if (Number(own) > Number(opp)) x.wins++; else x.losses++;
+      };
+      add(m.a1,m.score_a,m.score_b);
+      add(m.a2,m.score_a,m.score_b);
+      add(m.b1,m.score_b,m.score_a);
+      add(m.b2,m.score_b,m.score_a);
+    });
+
+    metrics.forEach(x => {
+      x.pointDiff = x.games ? (x.pointsFor - x.pointsAgainst) / x.games : 0;
+    });
+
+    const byPlayer = new Map();
+    resultRows.forEach(r => {
+      if (!byPlayer.has(r.player_id)) byPlayer.set(r.player_id, []);
+      byPlayer.get(r.player_id).push(r);
+    });
+
+    byPlayer.forEach((rows,pid) => {
+      rows.sort((a,b) => new Date(a.created_at)-new Date(b.created_at));
+      let best=0, run=0;
+      rows.forEach(r => {
+        if (r.result === "win") {
+          run++;
+          best=Math.max(best,run);
+        } else {
+          run=0;
+        }
+      });
+      if (!metrics.has(pid)) {
+        metrics.set(pid, {
+          playerId:pid,games:0,wins:0,losses:0,
+          pointsFor:0,pointsAgainst:0,pointDiff:0,
+          bestWinStreak:0,currentWinStreak:0,upsetWins:0
+        });
+      }
+      metrics.get(pid).bestWinStreak=best;
+
+      let current=0;
+      for (const r of [...rows].reverse()) {
+        if (r.result !== "win") break;
+        current++;
+      }
+      metrics.get(pid).currentWinStreak=current;
+    });
+
+    return metrics;
+  }
+
+  function calculateUpsets(matchRows,resultRows,metrics) {
+    const receipt = new Map();
+    resultRows.forEach(r => receipt.set(`${r.match_id}|${r.player_id}`,r));
+
+    const upsets=[];
+    matchRows.forEach(m => {
+      const teamA=[m.a1,m.a2];
+      const teamB=[m.b1,m.b2];
+      const aRatings=teamA.map(pid => receipt.get(`${m.id}|${pid}`)).filter(Boolean).map(resultRatingBeforeForScope);
+      const bRatings=teamB.map(pid => receipt.get(`${m.id}|${pid}`)).filter(Boolean).map(resultRatingBeforeForScope);
+      if (aRatings.length!==2 || bRatings.length!==2) return;
+      if (aRatings.some(x=>!Number.isFinite(x)) || bRatings.some(x=>!Number.isFinite(x))) return;
+
+      const avgA=(aRatings[0]+aRatings[1])/2;
+      const avgB=(bRatings[0]+bRatings[1])/2;
+      const aWon=Number(m.score_a)>Number(m.score_b);
+      const winnerIds=aWon?teamA:teamB;
+      const loserIds=aWon?teamB:teamA;
+      const winnerAvg=aWon?avgA:avgB;
+      const loserAvg=aWon?avgB:avgA;
+      const gap=loserAvg-winnerAvg;
+
+      if (gap>0) {
+        upsets.push({match:m,gap,winnerIds,loserIds,winnerAvg,loserAvg});
+        if (gap>=75) {
+          winnerIds.forEach(pid => {
+            if (metrics.has(pid)) metrics.get(pid).upsetWins++;
+          });
+        }
+      }
+    });
+
+    return upsets.sort((a,b)=>b.gap-a.gap);
+  }
+
+  function calculateWeeklyMovement(resultRows,tournamentResults) {
+    const cutoff=Date.now()-7*24*60*60*1000;
+    const deltas=new Map();
+
+    resultRows.forEach(r => {
+      if (new Date(r.created_at).getTime()<cutoff) return;
+      const d=resultRatingDeltaForScope(r);
+      if (!Number.isFinite(d)) return;
+      deltas.set(r.player_id,(deltas.get(r.player_id)||0)+d);
+    });
+
+    tournamentResults.forEach(r => {
+      if (new Date(r.created_at).getTime()<cutoff) return;
+      const d=tournamentRatingDeltaForScope(r);
+      if (!Number.isFinite(d)) return;
+      deltas.set(r.player_id,(deltas.get(r.player_id)||0)+d);
+    });
+
+    return [...deltas.entries()]
+      .map(([playerId,delta])=>({playerId,delta}))
+      .sort((a,b)=>b.delta-a.delta || (playerById(a.playerId)?.name||"").localeCompare(playerById(b.playerId)?.name||""));
+  }
+
+  function buildAdvancedContext(matchRows,obj) {
+    const results=advancedScopeResults(obj);
+    const tournamentResults=advancedScopeTournamentResults(obj);
+    const tournamentRows=advancedScopeTournaments(obj);
+    const metrics=buildPlayerAdvancedMetrics(matchRows,results);
+    const upsets=calculateUpsets(matchRows,results,metrics);
+    const weekly=calculateWeeklyMovement(results,tournamentResults);
+    const metricRows=[...metrics.values()];
+
+    const maxStreak=Math.max(0,...metricRows.map(x=>x.bestWinStreak||0));
+    const longestStreak={
+      value:maxStreak,
+      playerIds:metricRows.filter(x=>x.bestWinStreak===maxStreak && maxStreak>0).map(x=>x.playerId)
+    };
+
+    const maxGames=Math.max(0,...metricRows.map(x=>x.games||0));
+    const mostActive={
+      value:maxGames,
+      playerIds:metricRows.filter(x=>x.games===maxGames && maxGames>0).map(x=>x.playerId)
+    };
+
+    const maxGiant=Math.max(0,...metricRows.map(x=>x.upsetWins||0));
+    const giantKiller={
+      value:maxGiant,
+      playerIds:metricRows.filter(x=>x.upsetWins===maxGiant && maxGiant>0).map(x=>x.playerId)
+    };
+
+    const championships=new Map();
+    tournamentRows.filter(t=>t.status==="completed" && t.champion_player_id).forEach(t => {
+      championships.set(t.champion_player_id,(championships.get(t.champion_player_id)||0)+1);
+    });
+
+    const topWeekly=weekly.find(x=>x.delta>0);
+    const weeklyLeader=topWeekly
+      ? {value:topWeekly.delta,playerIds:weekly.filter(x=>x.delta===topWeekly.delta).map(x=>x.playerId)}
+      : {value:0,playerIds:[]};
+
+    return {
+      metrics,
+      upsets,
+      biggestUpset:upsets[0]||null,
+      weekly,
+      longestStreak,
+      mostActive,
+      giantKiller,
+      championships,
+      weeklyLeader
+    };
+  }
+
+  function badgeDefinitionsForPlayer(playerId,ctx) {
+    const rows=selectedRows();
+    const row=rows.find(p=>p.id===playerId);
+    if (!row) return [];
+    const rank=row.provisional?null:currentRankMap(rows)[playerId];
+    const badges=[];
+
+    if (rank===1) badges.push({key:"court-king",icon:"♛",name:"Court King",detail:"#1 ranked player",tier:"scarlet"});
+    if (rank && rank<=10) badges.push({key:"top-ten",icon:"10",name:"Top 10",detail:`Ranked #${rank}`,tier:"gold"});
+    if (Number(row.wins||0)>=10) badges.push({key:"ten-wins",icon:"10W",name:"10 Wins",detail:`${row.wins} wins`,tier:"bronze"});
+    if (Number(row.wins||0)>=25) badges.push({key:"twenty-five-wins",icon:"25W",name:"25 Wins",detail:`${row.wins} wins`,tier:"silver"});
+
+    if (ctx?.longestStreak?.playerIds?.includes(playerId) && ctx.longestStreak.value>0) {
+      badges.push({key:"streak-king",icon:"🔥",name:"Streak King",detail:`${ctx.longestStreak.value} straight wins`,tier:"scarlet"});
+    }
+    if (ctx?.biggestUpset?.winnerIds?.includes(playerId)) {
+      badges.push({key:"upset-artist",icon:"💥",name:"Upset Artist",detail:`+${Math.round(ctx.biggestUpset.gap)} rating upset`,tier:"gold"});
+    }
+    if (ctx?.mostActive?.playerIds?.includes(playerId) && ctx.mostActive.value>0) {
+      badges.push({key:"ironman",icon:"⚡",name:"Most Active",detail:`${ctx.mostActive.value} games`,tier:"silver"});
+    }
+    if (ctx?.giantKiller?.playerIds?.includes(playerId) && ctx.giantKiller.value>0) {
+      badges.push({key:"giant-killer",icon:"👹",name:"Giant Killer",detail:`${ctx.giantKiller.value} major upset win${ctx.giantKiller.value===1?"":"s"}`,tier:"scarlet"});
+    }
+
+    const titles=ctx?.championships?.get(playerId)||0;
+    if (titles>0) {
+      badges.push({key:"champion",icon:"🏆",name:"Tournament Champion",detail:`${titles} XO title${titles===1?"":"s"}`,tier:"gold"});
+    }
+    if (ctx?.weeklyLeader?.playerIds?.includes(playerId) && ctx.weeklyLeader.value>0) {
+      badges.push({key:"weekly-rocket",icon:"↗",name:"Weekly Rocket",detail:`+${ctx.weeklyLeader.value} this week`,tier:"green"});
+    }
+    return badges;
+  }
+
+  function playerNameList(ids,max=2) {
+    const names=(ids||[]).map(id=>playerById(id)?.name||"Unknown");
+    if (!names.length) return "—";
+    if (names.length<=max) return names.join(" & ");
+    return `${names.slice(0,max).join(" & ")} +${names.length-max}`;
+  }
+
+  function awardCard(icon,label,title,detail,playerIds=[]) {
+    return `<article class="league-award-card">
+      <div class="league-award-icon">${icon}</div>
+      <div class="league-award-copy">
+        <span>${esc(label)}</span>
+        <strong>${esc(title||"—")}</strong>
+        <small>${esc(detail||"Not enough data yet")}</small>
+      </div>
+      ${playerIds?.[0]?`<button data-player-profile="${playerIds[0]}" aria-label="Open profile">View</button>`:""}
+    </article>`;
+  }
+
+  function renderWeeklyMovers(ctx) {
+    const root=$("weeklyMovers");
+    if (!root) return;
+    const positive=ctx.weekly.filter(x=>x.delta>0).slice(0,5);
+    const negative=ctx.weekly.filter(x=>x.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,5);
+
+    const rows=(arr,direction)=>arr.map((x,i)=>{
+      const p=playerById(x.playerId);
+      return `<button class="weekly-mover-row" data-player-profile="${x.playerId}">
+        <span class="weekly-place">#${i+1}</span>
+        <div><strong>${esc(p?.name||"Unknown")}</strong><small>${direction==="up"?"Riser":"Fall"}</small></div>
+        <b class="${x.delta>=0?"positive":"negative"}">${x.delta>=0?"+":""}${x.delta}</b>
+      </button>`;
+    }).join("");
+
+    root.innerHTML=(positive.length||negative.length)?`
+      <div class="weekly-mover-column">
+        <div class="weekly-mover-heading"><span>↗</span><strong>Top Risers</strong></div>
+        ${positive.length?rows(positive,"up"):`<div class="empty compact-empty">No positive movement this week.</div>`}
+      </div>
+      <div class="weekly-mover-column">
+        <div class="weekly-mover-heading"><span>↘</span><strong>Biggest Drops</strong></div>
+        ${negative.length?rows(negative,"down"):`<div class="empty compact-empty">No rating drops this week.</div>`}
+      </div>`:`<div class="empty">No rating movement in the last 7 days yet.</div>`;
+  }
+
+  function renderAchievementBoard(ctx) {
+    const root=$("achievementBoard");
+    if (!root) return;
+    const holders=[];
+    selectedRows().forEach(p=>{
+      badgeDefinitionsForPlayer(p.id,ctx).forEach(b=>holders.push({playerId:p.id,badge:b}));
+    });
+
+    $("achievementCountBadge").textContent=`${holders.length} earned`;
+    if (!holders.length) {
+      root.innerHTML=`<div class="empty">Achievements will unlock as league results build up.</div>`;
+      return;
+    }
+
+    const badgeMeta=[
+      ["court-king","♛","Court King"],
+      ["top-ten","10","Top 10"],
+      ["ten-wins","10W","10 Wins"],
+      ["twenty-five-wins","25W","25 Wins"],
+      ["streak-king","🔥","Streak King"],
+      ["upset-artist","💥","Upset Artist"],
+      ["ironman","⚡","Most Active"],
+      ["champion","🏆","Tournament Champion"],
+      ["giant-killer","👹","Giant Killer"],
+      ["weekly-rocket","↗","Weekly Rocket"]
+    ];
+
+    root.innerHTML=badgeMeta.map(([key,icon,name])=>{
+      const earned=holders.filter(x=>x.badge.key===key);
+      return `<article class="achievement-category ${earned.length?"":"locked"}">
+        <div class="achievement-icon">${icon}</div>
+        <div>
+          <strong>${name}</strong>
+          <span>${earned.length?earned.slice(0,4).map(x=>esc(playerById(x.playerId)?.name||"Unknown")).join(" • "):"Not earned yet"}${earned.length>4?` • +${earned.length-4}`:""}</span>
+        </div>
+        <b>${earned.length}</b>
+      </article>`;
+    }).join("");
+  }
+
+  function renderAdvancedPlayerTable(ctx) {
+    const root=$("advancedPlayerTableBody");
+    if (!root) return;
+    const rows=selectedRows();
+    const rankMap=currentRankMap(rows);
+
+    root.innerHTML=rows.slice(0,20).map(p=>{
+      const m=ctx.metrics.get(p.id)||{games:0,pointDiff:0,bestWinStreak:0,upsetWins:0};
+      const gp=Number(p.wins||0)+Number(p.losses||0);
+      const pct=gp?Number(p.wins||0)*100/gp:0;
+      const badges=badgeDefinitionsForPlayer(p.id,ctx);
+      return `<tr data-player-profile="${p.id}">
+        <td>${p.provisional?`<span class="prov-mini">PROV</span>`:`#${rankMap[p.id]||"—"}`}</td>
+        <td><strong>${esc(p.name)}</strong>${badges.length?`<small>${badges.slice(0,3).map(b=>b.icon).join(" ")}</small>`:""}</td>
+        <td>${p.rating}</td>
+        <td>${p.wins||0}-${p.losses||0}</td>
+        <td>${pct.toFixed(1)}%</td>
+        <td class="${m.pointDiff>0?"positive":m.pointDiff<0?"negative":""}">${m.pointDiff>0?"+":""}${m.pointDiff.toFixed(1)}</td>
+        <td>${m.bestWinStreak||0}</td>
+        <td>${m.upsetWins||0}</td>
+      </tr>`;
+    }).join("")||`<tr><td colspan="8">No players in this view.</td></tr>`;
+  }
+
+  function renderAdvancedStats() {
+    if (!$("leagueAwardsGrid")) return;
+    const key=statsScopeKey();
+    const obj=advancedStatsCache.get(key);
+    const matchRows=statsMatchesCache.get(key)||[];
+    const rows=selectedRows();
+    const official=rows.filter(p=>!p.provisional);
+    const top=rows[0]||null;
+    const avg=rows.length?Math.round(rows.reduce((sum,p)=>sum+Number(p.rating||0),0)/rows.length):0;
+
+    $("advOfficialPlayers").textContent=official.length;
+    $("advOfficialSub").textContent=`${rows.length} active players total`;
+    $("advApprovedMatches").textContent=matchRows.length;
+    $("advMatchesSub").textContent=statsScopeName();
+    $("advAvgRating").textContent=rows.length?avg:"—";
+    $("advTopRating").textContent=top?.rating??"—";
+    $("advTopRatingName").textContent=top?.name||"—";
+
+    if (!obj) {
+      $("leagueAwardsGrid").innerHTML=`<div class="advanced-stats-loading">Loading awards, streaks, and achievements…</div>`;
+      $("weeklyMovers").innerHTML=`<div class="advanced-stats-loading">Loading weekly movement…</div>`;
+      $("achievementBoard").innerHTML=`<div class="advanced-stats-loading">Loading achievements…</div>`;
+      $("advancedPlayerTableBody").innerHTML=`<tr><td colspan="8">Loading advanced stats…</td></tr>`;
+      return;
+    }
+
+    const ctx=buildAdvancedContext(matchRows,obj);
+    const upset=ctx.biggestUpset;
+    const activeNames=playerNameList(ctx.mostActive.playerIds);
+    const streakNames=playerNameList(ctx.longestStreak.playerIds);
+    const giantNames=playerNameList(ctx.giantKiller.playerIds);
+    const upsetNames=upset?playerNameList(upset.winnerIds):"—";
+
+    $("leagueAwardsGrid").innerHTML=[
+      awardCard("🔥","LONGEST WIN STREAK",streakNames,ctx.longestStreak.value?`${ctx.longestStreak.value} consecutive wins`:"No streak yet",ctx.longestStreak.playerIds),
+      awardCard("💥","BIGGEST UPSET",upsetNames,upset?`Beat a team rated ${Math.round(upset.gap)} points higher on average • ${upset.match.score_a}-${upset.match.score_b}`:"No underdog wins yet",upset?.winnerIds||[]),
+      awardCard("⚡","MOST ACTIVE",activeNames,ctx.mostActive.value?`${ctx.mostActive.value} approved games`:"No games yet",ctx.mostActive.playerIds),
+      awardCard("👹","GIANT KILLER",giantNames,ctx.giantKiller.value?`${ctx.giantKiller.value} win${ctx.giantKiller.value===1?"":"s"} as a 75+ rating underdog`:"No major upset wins yet",ctx.giantKiller.playerIds)
+    ].join("");
+
+    renderWeeklyMovers(ctx);
+    renderAchievementBoard(ctx);
+    renderAdvancedPlayerTable(ctx);
+  }
+
+  async function loadAdvancedStatsData(force=false) {
+    if (!$("leagueAwardsGrid")) return;
+    const key=statsScopeKey();
+
+    if (!configured) {
+      advancedStatsCache.set(key,{results:[],tournamentResults:[],tournaments:[]});
+      renderAdvancedStats();
+      return;
+    }
+    if (!force && advancedStatsCache.has(key)) {
+      renderAdvancedStats();
+      return;
+    }
+    if (advancedStatsLoading) return;
+    advancedStatsLoading=true;
+
+    try {
+      const results=[];
+      const pageSize=1000;
+      for (let from=0;from<10000;from+=pageSize) {
+        let q=sb.from("match_player_results")
+          .select("id,match_id,season_id,player_id,result,rating_before,rating_after,rating_delta,season_rating_before,season_rating_after,season_rating_delta,created_at")
+          .order("created_at",{ascending:true})
+          .range(from,from+pageSize-1);
+        if (selectedSeasonId && selectedSeasonId!=="all") q=q.eq("season_id",selectedSeasonId);
+        const {data,error}=await q;
+        if (error) throw error;
+        const page=data||[];
+        results.push(...page);
+        if (page.length<pageSize) break;
+      }
+
+      let tq=sb.from("tournaments")
+        .select("id,season_id,name,status,champion_player_id,affects_ratings,created_at,completed_at")
+        .order("created_at",{ascending:false});
+      if (selectedSeasonId && selectedSeasonId!=="all") tq=tq.eq("season_id",selectedSeasonId);
+
+      let trq=sb.from("tournament_rating_results")
+        .select("id,tournament_id,tournament_match_id,season_id,player_id,result,rating_delta,season_rating_delta,created_at")
+        .order("created_at",{ascending:true});
+      if (selectedSeasonId && selectedSeasonId!=="all") trq=trq.eq("season_id",selectedSeasonId);
+
+      const [tRes,trRes]=await Promise.all([tq,trq]);
+      if (tRes.error) throw tRes.error;
+      if (trRes.error) throw trRes.error;
+
+      advancedStatsCache.set(key,{
+        results,
+        tournaments:tRes.data||[],
+        tournamentResults:trRes.data||[]
+      });
+      renderAdvancedStats();
+    } catch (err) {
+      console.error(err);
+      $("leagueAwardsGrid").innerHTML=`<div class="empty">Could not load advanced stats: ${esc(err.message||err)}</div>`;
+    } finally {
+      advancedStatsLoading=false;
+    }
+  }
 
   function activeMuteForUser(userId) {
     if (!userId) return null;
@@ -1822,6 +2310,7 @@
     seasonStats = ssRes.data || [];
     playerProfileCache.clear();
     statsMatchesCache.clear();
+    advancedStatsCache.clear();
     communityLoaded = false;
     if (!selectedSeasonId) selectedSeasonId = activeSeason()?.id || "all";
 
@@ -2072,9 +2561,20 @@
   function subscribeRealtime() {
     if (!configured) return;
     if (realtimeChannel) sb.removeChannel(realtimeChannel);
-    realtimeChannel = sb.channel("xo-league-live-v7")
+    realtimeChannel = sb.channel("xo-league-live-v8")
       .on("postgres_changes", { event:"*", schema:"public", table:"players" }, () => loadData())
-      .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, () => loadData())
+      .on("postgres_changes", { event:"*", schema:"public", table:"matches" }, async () => {
+        await loadData();
+        if ($("stats")?.classList.contains("active")) {
+          await loadStatsMatches(true);
+          await loadAdvancedStatsData(true);
+        }
+      })
+      .on("postgres_changes", { event:"*", schema:"public", table:"match_player_results" }, () => {
+        advancedStatsCache.clear();
+        playerProfileCache.clear();
+        if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
+      })
       .on("postgres_changes", { event:"*", schema:"public", table:"identity_claims" }, async () => { await refreshProfile(); await loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"audit_log" }, () => { if (isCommissioner()) loadData(); })
       .on("postgres_changes", { event:"*", schema:"public", table:"seasons" }, () => loadData())
@@ -2093,7 +2593,9 @@
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"tournaments" }, () => {
         tournamentLoaded = false;
+        advancedStatsCache.clear();
         if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
+        if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"tournament_matches" }, () => {
         tournamentLoaded = false;
@@ -2105,7 +2607,9 @@
       })
       .on("postgres_changes", { event:"*", schema:"public", table:"tournament_rating_results" }, () => {
         tournamentLoaded = false;
+        advancedStatsCache.clear();
         if ($("tournaments")?.classList.contains("active")) loadTournamentData(true);
+        if ($("stats")?.classList.contains("active")) loadAdvancedStatsData(true);
       })
       .subscribe();
   }
@@ -2117,13 +2621,17 @@
     $("seasonSelect").addEventListener("change", e => {
       selectedSeasonId = e.target.value;
       renderAll();
-      if ($("stats").classList.contains("active")) loadStatsMatches();
+      if ($("stats").classList.contains("active")) {
+        loadStatsMatches();
+        loadAdvancedStatsData();
+      }
     });
 
     $("statsSeasonSelect").addEventListener("change", e => {
       selectedSeasonId = e.target.value;
       renderAll();
       loadStatsMatches();
+      loadAdvancedStatsData();
     });
     $("statsPlayerA").addEventListener("change", e => {
       statsPlayerAId = e.target.value;
