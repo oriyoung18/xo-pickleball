@@ -783,7 +783,7 @@
               </div>
               <p class="muted-copy">If your name is not already anywhere on the roster, create your player profile yourself. You will be linked immediately and added to the active-season leaderboard as a provisional player.</p>
               <label>Leaderboard name
-                <input id="selfRegisterPlayerName" class="input" type="text" maxlength="60" autocomplete="name" placeholder="First Last" />
+                <input id="newPlayerName" class="input" type="text" maxlength="60" autocomplete="name" placeholder="First Last" />
               </label>
               <div class="new-player-start-card">
                 <div><span>START</span><b>1500</b></div>
@@ -884,7 +884,7 @@
             <div class="admin-tool-card">
               <h4>Add Player</h4>
               <div class="admin-row">
-                <label>Name<input id="newPlayerName" class="input" type="text" placeholder="Player name" /></label>
+                <label>Name<input id="adminNewPlayerName" class="input" type="text" placeholder="Player name" /></label>
                 <label>Rating<input id="newPlayerRating" class="input" type="number" value="1500" /></label>
                 <button id="addPlayerBtn" class="btn gold-btn">Add</button>
               </div>
@@ -1041,20 +1041,45 @@
   </div>
 
   <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-    <div class="modal-card">
+    <div class="modal-card auth-modal-card">
       <button id="closeAuth" class="modal-close" aria-label="Close">×</button>
-      <div class="crest auth-crest"><span class="greek">ΧΦ</span><span class="ball-mini"></span></div>
-      <div class="panel-kicker">LEAGUE ACCOUNT</div>
-      <h3 id="authTitle">Sign in</h3>
-
-      <div id="nameField" class="hidden">
-        <label>Full name<input id="authName" class="input" type="text" placeholder="Your name" /></label>
+      <div class="auth-brand-row">
+        <div class="crest auth-crest"><span class="greek">ΧΦ</span><span class="ball-mini"></span></div>
+        <div>
+          <div class="panel-kicker">LEAGUE ACCOUNT</div>
+          <div class="auth-security-label"><span class="auth-security-dot"></span> Protected signup</div>
+        </div>
       </div>
-      <label>Email<input id="authEmail" class="input" type="email" autocomplete="email" placeholder="you@example.com" /></label>
-      <label>Password<input id="authPassword" class="input" type="password" autocomplete="current-password" placeholder="8+ characters" /></label>
+      <h3 id="authTitle">Sign in</h3>
+      <p id="authSubtitle" class="auth-subtitle">Sign in to submit scores, confirm matches, chat, and manage your player profile.</p>
+
+      <div id="authFormFields">
+        <div id="nameField" class="hidden">
+          <label>Full name<input id="authName" class="input" type="text" autocomplete="name" placeholder="Your name" /></label>
+        </div>
+        <label id="emailField">Email<input id="authEmail" class="input" type="email" autocomplete="email" placeholder="you@example.com" /></label>
+        <label id="passwordField">Password<input id="authPassword" class="input" type="password" autocomplete="current-password" placeholder="8+ characters" /></label>
+        <label id="newPasswordField" class="hidden">New password<input id="authNewPassword" class="input" type="password" autocomplete="new-password" placeholder="8+ characters" /></label>
+        <label id="confirmPasswordField" class="hidden">Confirm new password<input id="authConfirmPassword" class="input" type="password" autocomplete="new-password" placeholder="Repeat password" /></label>
+      </div>
+
+      <div id="authCheckEmail" class="auth-check-email hidden">
+        <div class="auth-mail-icon">✉</div>
+        <strong>Check your email</strong>
+        <p>We sent a verification link to <b id="authPendingEmail">your email</b>. Open it to finish creating your XO account.</p>
+        <small>If you do not see it, check spam or use the resend button below.</small>
+      </div>
+
+      <div id="turnstileWrap" class="turnstile-wrap hidden">
+        <div id="turnstileWidget"></div>
+        <div id="turnstileStatus" class="turnstile-status">Human verification loads automatically.</div>
+      </div>
 
       <button id="authSubmit" class="btn primary wide">Sign in</button>
-      <button id="authSwitch" class="link-btn wide-link">Need an account? Sign up</button>
+      <button id="resendVerificationBtn" class="btn outline wide hidden" type="button">Resend verification email</button>
+      <button id="forgotPasswordBtn" class="link-btn wide-link" type="button">Forgot password?</button>
+      <button id="authSwitch" class="link-btn wide-link" type="button">Need an account? Sign up</button>
+      <button id="authBackToSignin" class="link-btn wide-link hidden" type="button">Back to sign in</button>
       <div id="authMessage" class="form-message" aria-live="polite"></div>
     </div>
   </div>
@@ -1064,7 +1089,9 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
   <script src="config.js"></script>
+  <script src="auth-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

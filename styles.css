@@ -1249,3 +1249,29 @@ body.notification-drawer-open{overflow:hidden}
 .new-player-warning{margin:9px 0 10px;border-radius:9px;padding:8px 9px;background:rgba(212,175,55,.055);border:1px solid rgba(212,175,55,.15);font-size:9px;line-height:1.45;color:#aeb5bf}
 .new-player-warning b{color:var(--gold2)}
 @media(max-width:560px){.new-player-start-card{grid-template-columns:1fr 1fr}}
+
+/* Upgrade 13 — Production Auth + Cloudflare Turnstile */
+.auth-modal-card{width:min(470px,100%);overflow:hidden}
+.auth-brand-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.auth-brand-row .auth-crest{margin:0;flex:0 0 auto}
+.auth-subtitle{margin:7px 0 15px;color:var(--muted);font-size:11px;line-height:1.55}
+.auth-security-label{display:flex;align-items:center;gap:6px;margin-top:5px;color:#8e9aa8;font-size:8px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.auth-security-dot{width:7px;height:7px;border-radius:999px;background:#55df9a;box-shadow:0 0 0 3px rgba(85,223,154,.1)}
+.turnstile-wrap{margin:15px 0 10px;padding:10px;border:1px solid rgba(212,175,55,.16);border-radius:14px;background:#0b0f14;min-height:48px}
+#turnstileWidget{min-height:1px;overflow:hidden}
+.turnstile-status{margin-top:7px;color:#778291;font-size:8px;line-height:1.4;text-align:center}
+.auth-check-email{margin:14px 0;padding:18px;border:1px solid rgba(212,175,55,.3);border-radius:16px;background:linear-gradient(135deg,rgba(212,175,55,.08),rgba(204,0,51,.035));text-align:center}
+.auth-check-email .auth-mail-icon{width:48px;height:48px;margin:0 auto 10px;border-radius:15px;display:grid;place-items:center;background:rgba(212,175,55,.1);border:1px solid rgba(212,175,55,.27);color:var(--gold2);font-size:21px}
+.auth-check-email strong{display:block;font-size:16px}
+.auth-check-email p{margin:7px 0 5px;color:#c7cdd5;font-size:11px;line-height:1.55}
+.auth-check-email small{display:block;color:#7d8793;font-size:9px;line-height:1.5}
+.auth-check-email b{color:var(--gold2)}
+.auth-modal-card .btn.wide{width:100%;margin-top:10px}
+.auth-modal-card .btn.outline.wide{background:#0c1117}
+.auth-modal-card .form-message{margin-top:10px}
+.auth-modal-card .form-message.success{color:#65dfa4}
+.auth-modal-card .form-message.error{color:#ff7d8c}
+@media(max-width:600px){
+  .auth-modal-card{padding:20px 16px;border-radius:18px}
+  .turnstile-wrap{padding:8px}
+}
